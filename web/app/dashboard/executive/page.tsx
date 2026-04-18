@@ -1313,6 +1313,8 @@ export default async function ExecutiveDashboardPage({
           WHERE sa.opportunity_id = o.id
             AND sa.org_id = $1::bigint
             AND sa.total_score IS NOT NULL
+            AND o.review_requested_at IS NOT NULL
+            AND sa.ts > o.review_requested_at
           ORDER BY sa.ts DESC, sa.id DESC
           LIMIT 1
         ) score_after ON true

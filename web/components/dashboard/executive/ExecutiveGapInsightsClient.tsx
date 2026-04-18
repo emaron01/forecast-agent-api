@@ -707,6 +707,10 @@ export function ExecutiveGapInsightsClient(props: {
   const [commitIntegrityExpandedId, setCommitIntegrityExpandedId] = useState<string | null>(null);
   const [commitDealCache, setCommitDealCache] = useState<Record<string, DealCoachingCardDeal>>({});
   const [commitDealLoadingId, setCommitDealLoadingId] = useState<string | null>(null);
+  const [commitIntegrityRequestingDealId, setCommitIntegrityRequestingDealId] = useState<string | null>(null);
+  const [commitIntegrityRequestNote, setCommitIntegrityRequestNote] = useState("");
+  const [commitIntegrityRequestSubmitting, setCommitIntegrityRequestSubmitting] = useState(false);
+  const [commitIntegrityRequestError, setCommitIntegrityRequestError] = useState(false);
   const briefing = useExecutiveBriefing();
 
   const isChannelViewerRole = useMemo(
@@ -1853,21 +1857,43 @@ export function ExecutiveGapInsightsClient(props: {
     }
   }
 
-  async function handleCommitIntegrityRequestReview(dealId: string) {
+  function openCommitIntegrityRequestComposer(dealId: string) {
+    setCommitIntegrityRequestError(false);
+    setCommitIntegrityRequestingDealId(dealId);
+    setCommitIntegrityRequestNote("");
+  }
+
+  function cancelCommitIntegrityRequestReview() {
+    setCommitIntegrityRequestingDealId(null);
+    setCommitIntegrityRequestNote("");
+    setCommitIntegrityRequestError(false);
+  }
+
+  async function sendCommitIntegrityRequestReview(dealId: string) {
+    setCommitIntegrityRequestSubmitting(true);
+    setCommitIntegrityRequestError(false);
     try {
       const res = await fetch("/api/coaching/request-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           opportunityId: dealId,
-          note: "",
+          note: commitIntegrityRequestNote.trim(),
         }),
       });
-      if (res.ok) {
-        setCommitIntegrityExpandedId(null);
-        router.refresh();
+      if (!res.ok) {
+        setCommitIntegrityRequestError(true);
+        return;
       }
-    } catch {}
+      setCommitIntegrityRequestingDealId(null);
+      setCommitIntegrityRequestNote("");
+      setCommitIntegrityExpandedId(null);
+      router.refresh();
+    } catch {
+      setCommitIntegrityRequestError(true);
+    } finally {
+      setCommitIntegrityRequestSubmitting(false);
+    }
   }
 
   if (props.pipelineKpisTabOnly) {
@@ -3338,7 +3364,14 @@ export function ExecutiveGapInsightsClient(props: {
                           deal={commitDealCache[d.id]}
                           onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                           showRequestReview={!isChannelViewerRole}
-                          onRequestReview={handleCommitIntegrityRequestReview}
+                          onRequestReview={openCommitIntegrityRequestComposer}
+                          requestReviewComposerOpen={commitIntegrityRequestingDealId === d.id}
+                          requestReviewNote={commitIntegrityRequestNote}
+                          onRequestReviewNoteChange={setCommitIntegrityRequestNote}
+                          onRequestReviewSend={() => void sendCommitIntegrityRequestReview(d.id)}
+                          onRequestReviewCancel={cancelCommitIntegrityRequestReview}
+                          requestReviewSubmitting={commitIntegrityRequestSubmitting}
+                          requestReviewError={commitIntegrityRequestError}
                           channelDashboard={isChannelDashboard}
                           kind="pain"
                           cardClassName={commitIntegrityCardClass}
@@ -3364,7 +3397,14 @@ export function ExecutiveGapInsightsClient(props: {
                           deal={commitDealCache[d.id]}
                           onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                           showRequestReview={!isChannelViewerRole}
-                          onRequestReview={handleCommitIntegrityRequestReview}
+                          onRequestReview={openCommitIntegrityRequestComposer}
+                          requestReviewComposerOpen={commitIntegrityRequestingDealId === d.id}
+                          requestReviewNote={commitIntegrityRequestNote}
+                          onRequestReviewNoteChange={setCommitIntegrityRequestNote}
+                          onRequestReviewSend={() => void sendCommitIntegrityRequestReview(d.id)}
+                          onRequestReviewCancel={cancelCommitIntegrityRequestReview}
+                          requestReviewSubmitting={commitIntegrityRequestSubmitting}
+                          requestReviewError={commitIntegrityRequestError}
                           channelDashboard={isChannelDashboard}
                           kind="verified"
                           cardClassName={commitIntegrityCardClass}
@@ -4433,7 +4473,14 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
-                        onRequestReview={handleCommitIntegrityRequestReview}
+                        onRequestReview={openCommitIntegrityRequestComposer}
+                        requestReviewComposerOpen={commitIntegrityRequestingDealId === d.id}
+                        requestReviewNote={commitIntegrityRequestNote}
+                        onRequestReviewNoteChange={setCommitIntegrityRequestNote}
+                        onRequestReviewSend={() => void sendCommitIntegrityRequestReview(d.id)}
+                        onRequestReviewCancel={cancelCommitIntegrityRequestReview}
+                        requestReviewSubmitting={commitIntegrityRequestSubmitting}
+                        requestReviewError={commitIntegrityRequestError}
                         channelDashboard={isChannelDashboard}
                         kind="pain"
                         cardClassName={commitIntegrityCardClass}
@@ -4457,7 +4504,14 @@ export function ExecutiveGapInsightsClient(props: {
                         deal={commitDealCache[d.id]}
                         onToggle={() => void toggleCommitIntegrityDeal(d.id)}
                         showRequestReview={!isChannelViewerRole}
-                        onRequestReview={handleCommitIntegrityRequestReview}
+                        onRequestReview={openCommitIntegrityRequestComposer}
+                        requestReviewComposerOpen={commitIntegrityRequestingDealId === d.id}
+                        requestReviewNote={commitIntegrityRequestNote}
+                        onRequestReviewNoteChange={setCommitIntegrityRequestNote}
+                        onRequestReviewSend={() => void sendCommitIntegrityRequestReview(d.id)}
+                        onRequestReviewCancel={cancelCommitIntegrityRequestReview}
+                        requestReviewSubmitting={commitIntegrityRequestSubmitting}
+                        requestReviewError={commitIntegrityRequestError}
                         channelDashboard={isChannelDashboard}
                         kind="verified"
                         cardClassName={commitIntegrityCardClass}

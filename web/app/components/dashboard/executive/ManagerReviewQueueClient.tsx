@@ -346,7 +346,11 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                       ) : !hasRequest && !justSent ? (
                         <button
                           type="button"
-                          onClick={() => setRequestingDealId(d.id)}
+                          onClick={() => {
+                            setNoteText("");
+                            setErrorDealId(null);
+                            setRequestingDealId(d.id);
+                          }}
                           className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-2 py-1 text-xs font-semibold text-white hover:opacity-90"
                         >
                           Request Review
@@ -362,22 +366,11 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                         ) : dealCache[d.id] ? (
                           <DealCoachingCard
                             deal={dealCache[d.id]}
-                            showRequestReview={true}
-                            onRequestReview={async (dealId) => {
-                              try {
-                                const res = await fetch("/api/coaching/request-review", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
-                                    opportunityId: dealId,
-                                    note: "",
-                                  }),
-                                });
-                                if (res.ok) {
-                                  setSuccessDealIds((prev) => new Set(prev).add(dealId));
-                                  setExpandedDealId(null);
-                                }
-                              } catch {}
+                            showRequestReview={!isOpen}
+                            onRequestReview={() => {
+                              setNoteText("");
+                              setErrorDealId(null);
+                              setRequestingDealId(d.id);
                             }}
                           />
                         ) : (

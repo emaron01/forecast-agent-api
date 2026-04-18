@@ -1000,19 +1000,19 @@ export async function loadChannelLedFedRows(args: {
       isCurrency: true,
     },
     {
-      metric: "Deal Count",
-      channelLed: ledCnt,
-      channelFed: fedCnt,
-      total: ledCnt + fedCnt,
-      isCurrency: false,
-    },
-    {
       metric: "Closed Lost",
       channelLed: ledLost,
       channelFed: fedLost,
       total: ledLost + fedLost,
       isCurrency: true,
       valueTone: "lost",
+    },
+    {
+      metric: "Deal Count",
+      channelLed: ledCnt,
+      channelFed: fedCnt,
+      total: ledCnt + fedCnt,
+      isCurrency: false,
     },
   ];
 }

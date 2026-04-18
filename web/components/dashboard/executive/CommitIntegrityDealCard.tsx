@@ -21,8 +21,16 @@ export function CommitIntegrityDealCard(props: {
   deal: DealCoachingCardDeal | undefined;
   onToggle: () => void;
   showRequestReview: boolean;
-  /** Same POST flow as Coaching tab / manager queue (`/api/coaching/request-review`). */
-  onRequestReview?: (dealId: string) => void | Promise<void>;
+  /** Called when user clicks Request Review on the coaching card — open the note composer (Coaching tab flow). */
+  onRequestReview?: (dealId: string) => void;
+  /** Note composer open for this deal (below coaching card). */
+  requestReviewComposerOpen?: boolean;
+  requestReviewNote?: string;
+  onRequestReviewNoteChange?: (note: string) => void;
+  onRequestReviewSend?: () => void | Promise<void>;
+  onRequestReviewCancel?: () => void;
+  requestReviewSubmitting?: boolean;
+  requestReviewError?: boolean;
   /** `/dashboard/channel` only — hide review CTAs; show partner on coaching card */
   channelDashboard?: boolean;
   kind: "pain" | "verified";
@@ -39,6 +47,13 @@ export function CommitIntegrityDealCard(props: {
     onToggle,
     showRequestReview,
     onRequestReview,
+    requestReviewComposerOpen = false,
+    requestReviewNote = "",
+    onRequestReviewNoteChange,
+    onRequestReviewSend,
+    onRequestReviewCancel,
+    requestReviewSubmitting = false,
+    requestReviewError = false,
     channelDashboard = false,
     kind,
     cardClassName,
@@ -144,12 +159,47 @@ export function CommitIntegrityDealCard(props: {
           {loading ? (
             <div className="py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">Loading coaching card...</div>
           ) : deal ? (
-            <DealCoachingCard
-              deal={deal}
-              showRequestReview={showRequestReview}
-              onRequestReview={onRequestReview}
-              channelDashboard={channelDashboard}
-            />
+            <>
+              <DealCoachingCard
+                deal={deal}
+                showRequestReview={showRequestReview && !requestReviewComposerOpen}
+                onRequestReview={onRequestReview}
+                channelDashboard={channelDashboard}
+              />
+              {requestReviewComposerOpen ? (
+                <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                  <textarea
+                    value={requestReviewNote}
+                    onChange={(e) => onRequestReviewNoteChange?.(e.target.value)}
+                    placeholder="e.g. Focus on Decision Process before our 1:1 Thursday"
+                    className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] placeholder:text-[color:var(--sf-text-secondary)]"
+                    rows={2}
+                  />
+                  <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Add a note for the rep (optional)</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void onRequestReviewSend?.()}
+                      disabled={requestReviewSubmitting}
+                      className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                    >
+                      Send Request
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRequestReviewCancel?.()}
+                      disabled={requestReviewSubmitting}
+                      className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {requestReviewError ? (
+                    <p className="mt-2 text-xs text-red-600">Failed to send request. Please try again.</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
           ) : (
             <div className="text-sm text-[#E74C3C]">Unable to load coaching card.</div>
           )}
