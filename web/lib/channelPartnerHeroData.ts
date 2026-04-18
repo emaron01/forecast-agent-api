@@ -799,6 +799,8 @@ export async function loadChannelLedFedRows(args: {
       lost_fed: string | null;
       lost_count_led: string | null;
       lost_count_fed: string | null;
+      led_pipeline_only: string | null;
+      fed_pipeline_only: string | null;
       led_deal_count: string | null;
       fed_deal_count: string | null;
     }>(
@@ -907,6 +909,8 @@ export async function loadChannelLedFedRows(args: {
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_commit,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_best,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_best,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_pipeline_only,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_pipeline_only,
         COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_won,
         COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_won,
         COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_led THEN amount ELSE 0 END), 0)::float8 AS lost_led,
@@ -933,6 +937,8 @@ export async function loadChannelLedFedRows(args: {
   const fedCommit = n(r.fed_commit);
   const ledBest = n(r.led_best);
   const fedBest = n(r.fed_best);
+  const ledPipelineOnly = n(r.led_pipeline_only);
+  const fedPipelineOnly = n(r.fed_pipeline_only);
   const ledWon = n(r.led_won);
   const fedWon = n(r.fed_won);
   const ledLost = n(r.lost_led);
@@ -942,11 +948,12 @@ export async function loadChannelLedFedRows(args: {
 
   return [
     {
-      metric: "Total Pipeline",
-      channelLed: ledPipe,
-      channelFed: fedPipe,
-      total: ledPipe + fedPipe,
+      metric: "Closed Won",
+      channelLed: ledWon,
+      channelFed: fedWon,
+      total: ledWon + fedWon,
       isCurrency: true,
+      valueTone: "won",
     },
     {
       metric: "Commit",
@@ -963,12 +970,25 @@ export async function loadChannelLedFedRows(args: {
       isCurrency: true,
     },
     {
-      metric: "Closed Won",
-      channelLed: ledWon,
-      channelFed: fedWon,
-      total: ledWon + fedWon,
+      metric: "Pipeline",
+      channelLed: ledPipelineOnly,
+      channelFed: fedPipelineOnly,
+      total: ledPipelineOnly + fedPipelineOnly,
       isCurrency: true,
-      valueTone: "won",
+    },
+    {
+      metric: "Total Pipeline",
+      channelLed: ledPipe,
+      channelFed: fedPipe,
+      total: ledPipe + fedPipe,
+      isCurrency: true,
+    },
+    {
+      metric: "Deal Count",
+      channelLed: ledCnt,
+      channelFed: fedCnt,
+      total: ledCnt + fedCnt,
+      isCurrency: false,
     },
     {
       metric: "Closed Lost",
@@ -977,13 +997,6 @@ export async function loadChannelLedFedRows(args: {
       total: ledLost + fedLost,
       isCurrency: true,
       valueTone: "lost",
-    },
-    {
-      metric: "Deal Count",
-      channelLed: ledCnt,
-      channelFed: fedCnt,
-      total: ledCnt + fedCnt,
-      isCurrency: false,
     },
   ];
 }

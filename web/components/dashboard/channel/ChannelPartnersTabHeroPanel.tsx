@@ -139,9 +139,17 @@ export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroPro
   const gapSubtitle =
     channelGapDelta > 0 ? "Exceeded quota by" : channelGapDelta < 0 ? "Remaining to quota" : "Quota met";
 
-  const partnerCont01 = kpis?.directVsPartner?.partnerContributionPct;
+  /** Partner (channel) closed-won $ ÷ direct closed-won $ — same viewer-scoped quarter KPIs as this tab. */
+  const directClosedWonForContrib = kpis != null ? Number(kpis.directVsPartner.directWonAmount || 0) || 0 : null;
+  const partnerClosedWonForContrib = kpis != null ? Number(kpis.directVsPartner.partnerWonAmount || 0) || 0 : null;
   const contributionPct =
-    partnerCont01 != null && Number.isFinite(Number(partnerCont01)) ? Number(partnerCont01) * 100 : null;
+    directClosedWonForContrib != null &&
+    partnerClosedWonForContrib != null &&
+    Number.isFinite(directClosedWonForContrib) &&
+    Number.isFinite(partnerClosedWonForContrib) &&
+    directClosedWonForContrib > 0
+      ? (partnerClosedWonForContrib / directClosedWonForContrib) * 100
+      : null;
   /** Full layout: always show Contribution card (mirrors page hero card row). */
   const showContributionCard = true;
   const contributionColor =
@@ -275,7 +283,7 @@ export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroPro
                   <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${contributionColor}`}>
                     {contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}
                   </div>
-                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
+                  <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Partner closed won vs direct closed won (viewer scope)</div>
                 </div>
               ) : null}
             </div>
@@ -356,7 +364,7 @@ export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroPro
                     <div className={`mt-1 break-all text-xl font-bold font-[tabular-nums] sm:text-2xl ${contributionColor}`}>
                       {contributionPct == null ? "—" : `${contributionPct.toFixed(1)}%`}
                     </div>
-                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Channel closed won vs assigned sales team</div>
+                    <div className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Partner closed won vs direct closed won (viewer scope)</div>
                   </div>
                 ) : null}
                 <div className="min-w-0 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-4 shadow-sm">
