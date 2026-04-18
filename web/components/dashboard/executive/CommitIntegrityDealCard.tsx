@@ -21,6 +21,8 @@ export function CommitIntegrityDealCard(props: {
   deal: DealCoachingCardDeal | undefined;
   onToggle: () => void;
   showRequestReview: boolean;
+  /** Same POST flow as Coaching tab / manager queue (`/api/coaching/request-review`). */
+  onRequestReview?: (dealId: string) => void | Promise<void>;
   /** `/dashboard/channel` only — hide review CTAs; show partner on coaching card */
   channelDashboard?: boolean;
   kind: "pain" | "verified";
@@ -28,7 +30,21 @@ export function CommitIntegrityDealCard(props: {
   title?: string;
   style?: CSSProperties;
 }) {
-  const { d, channelInline, expanded, loading, deal, onToggle, showRequestReview, channelDashboard = false, kind, cardClassName, title, style } = props;
+  const {
+    d,
+    channelInline,
+    expanded,
+    loading,
+    deal,
+    onToggle,
+    showRequestReview,
+    onRequestReview,
+    channelDashboard = false,
+    kind,
+    cardClassName,
+    title,
+    style,
+  } = props;
   const sharedInner =
     kind === "pain" ? (
       <>
@@ -128,7 +144,12 @@ export function CommitIntegrityDealCard(props: {
           {loading ? (
             <div className="py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">Loading coaching card...</div>
           ) : deal ? (
-            <DealCoachingCard deal={deal} showRequestReview={showRequestReview} channelDashboard={channelDashboard} />
+            <DealCoachingCard
+              deal={deal}
+              showRequestReview={showRequestReview}
+              onRequestReview={onRequestReview}
+              channelDashboard={channelDashboard}
+            />
           ) : (
             <div className="text-sm text-[#E74C3C]">Unable to load coaching card.</div>
           )}

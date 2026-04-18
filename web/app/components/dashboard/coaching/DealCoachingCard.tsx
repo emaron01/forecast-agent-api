@@ -164,7 +164,7 @@ export type DealCoachingCardProps = {
   deal: DealCoachingCardDeal;
   onRequestReview?: (dealId: string) => void;
   showRequestReview?: boolean;
-  /** Channel dashboard: hide deal-review / Matthew actions. Partner Name follows AI Verdict Stage in the meta line when set. */
+  /** Channel dashboard: hide deal-review / request-review actions. Partner Name follows AI Verdict Stage in the meta line when set. */
   channelDashboard?: boolean;
 };
 
@@ -252,7 +252,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
                   onClick={() => props.onRequestReview?.(props.deal.id)}
                   className={`${requestReviewBtnClass} h-[34px]`}
                 >
-                  Request Matthew Review
+                  Request Review
                 </button>
               ) : null}
             </div>
@@ -377,7 +377,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
           onClick={() => props.onRequestReview?.(props.deal.id)}
           className={`mt-3 ${requestReviewBtnClass} py-2`}
         >
-          Request Matthew Review
+          Request Review
         </button>
       ) : null}
     </div>
