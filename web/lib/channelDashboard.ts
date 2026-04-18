@@ -484,6 +484,42 @@ async function loadTerritoryClosedWon(args: {
   }
 }
 
+/**
+ * Same contribution definition as `/dashboard/channel` hero: partner-scoped channel closed-won
+ * vs all closed-won on the territory reps (sales team). Percent is 0–100 scale for display.
+ */
+export async function loadChannelContributionForTerritory(args: {
+  orgId: number;
+  quotaPeriodId: string;
+  territoryRepIds: number[];
+  assignedPartnerNames: string[];
+}): Promise<{ channelClosedWon: number; salesTeamClosedWon: number; contributionPct: number | null }> {
+  const empty = { channelClosedWon: 0, salesTeamClosedWon: 0, contributionPct: null as number | null };
+  if (!args.quotaPeriodId || args.territoryRepIds.length === 0) return empty;
+  try {
+    const [rev, salesTeamClosedWon] = await Promise.all([
+      loadChannelRevenue({
+        orgId: args.orgId,
+        selectedQuotaPeriodId: args.quotaPeriodId,
+        territoryRepIds: args.territoryRepIds,
+        assignedPartnerNames: args.assignedPartnerNames,
+      }),
+      loadTerritoryClosedWon({
+        orgId: args.orgId,
+        selectedQuotaPeriodId: args.quotaPeriodId,
+        territoryRepIds: args.territoryRepIds,
+      }),
+    ]);
+    const channelClosedWon = rev.channel_closed_won;
+    const contributionPct =
+      salesTeamClosedWon > 0 ? (channelClosedWon / salesTeamClosedWon) * 100 : null;
+    return { channelClosedWon, salesTeamClosedWon, contributionPct };
+  } catch (error) {
+    logError("loadChannelContributionForTerritory", error);
+    return empty;
+  }
+}
+
 async function loadPartnerSummary(args: {
   orgId: number;
   selectedQuotaPeriodId: string;

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { loadChannelContributionForTerritory } from "./channelDashboard";
 import { pool } from "./pool";
 import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
@@ -550,6 +551,11 @@ export type ChannelPartnerHeroProps = {
   commitAdmission: CommitAdmissionAggregates | null;
   commitDealPanels: CommitAdmissionDealPanels | null;
   healthModifiers: { commit_modifier: number; best_case_modifier: number; pipeline_modifier: number };
+  /**
+   * Channel closed won (partner-scoped) ÷ sales-team closed won (all wins on territory reps) × 100.
+   * Same semantics as `/dashboard/channel` hero; null when there is no sales-team closed won to divide by.
+   */
+  channelVsTeamContributionPct: number | null;
 };
 
 export async function loadChannelPartnerHeroProps(args: {
@@ -584,6 +590,7 @@ export async function loadChannelPartnerHeroProps(args: {
     quotaRow,
     commitAdmission,
     commitDealPanels,
+    channelVsTeamContribution,
   ] = await Promise.all([
     loadPartnerTotals(args.orgId, qpId, repIds, partnerNames),
     loadPartnerVerdictAgg(args.orgId, qpId, repIds, partnerNames),
@@ -630,6 +637,14 @@ export async function loadChannelPartnerHeroProps(args: {
           requirePartnerName: true,
         }).catch(() => null)
       : Promise.resolve(null),
+    hasRepScope
+      ? loadChannelContributionForTerritory({
+          orgId: args.orgId,
+          quotaPeriodId: qpId,
+          territoryRepIds: repIds,
+          assignedPartnerNames: partnerNames,
+        }).catch(() => ({ channelClosedWon: 0, salesTeamClosedWon: 0, contributionPct: null as number | null }))
+      : Promise.resolve({ channelClosedWon: 0, salesTeamClosedWon: 0, contributionPct: null as number | null }),
   ]);
 
   const healthModifiers = {
@@ -759,6 +774,7 @@ export async function loadChannelPartnerHeroProps(args: {
     commitAdmission,
     commitDealPanels,
     healthModifiers,
+    channelVsTeamContributionPct: channelVsTeamContribution.contributionPct,
   };
 }
 
