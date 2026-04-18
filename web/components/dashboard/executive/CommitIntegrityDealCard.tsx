@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties } from "react";
 import type { CommitDealPanelItem } from "../../../lib/commitAdmissionAggregates";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../../../app/components/dashboard/coaching/DealCoachingCard";
 
@@ -60,6 +60,15 @@ export function CommitIntegrityDealCard(props: {
     title,
     style,
   } = props;
+  const reviewComposerRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!requestReviewComposerOpen) return;
+    requestAnimationFrame(() => {
+      reviewComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    });
+  }, [requestReviewComposerOpen]);
+
   const sharedInner =
     kind === "pain" ? (
       <>
@@ -167,7 +176,10 @@ export function CommitIntegrityDealCard(props: {
                 channelDashboard={channelDashboard}
               />
               {requestReviewComposerOpen ? (
-                <div className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                <div
+                  ref={reviewComposerRef}
+                  className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 scroll-mt-4"
+                >
                   <textarea
                     value={requestReviewNote}
                     onChange={(e) => onRequestReviewNoteChange?.(e.target.value)}

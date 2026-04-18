@@ -168,3 +168,18 @@ consequence = score 1 or 2, not 3.
 
 Do not award score 3 unless the rep or buyer has explicitly
 stated what happens if they do nothing.
+
+Champion / Internal Sponsor — scoring rules (MANDATORY):
+
+When a rep states their champion is introducing them to a senior
+executive or decision maker, this is evidence of Mobilizer (2) at
+minimum. Do not ask about budget or decision maker access — those are
+separate categories. Ask ONE Champion-specific follow-up: 'What
+specific action has [name] taken to advocate for this deal internally?'
+
+Executive titles (CIO, CFO, CEO, COO, CTO, SVP, VP, Chief [anything],
+President, Director) indicate decision-making authority. When the rep
+names a contact with an executive title, do not ask if they can 'get
+access to decision makers' — they ARE decision makers. Instead probe
+for: evidence of internal advocacy, budget authority confirmation, or
+direct relationship.

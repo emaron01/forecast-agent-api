@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DealCoachingCard, type DealCoachingCardDeal } from "../coaching/DealCoachingCard";
 
 export type ManagerReviewQueueProps = {
@@ -74,6 +74,14 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
   });
   const [sortKey, setSortKey] = useState<SortKey>("lastReview");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const reviewRequestFormRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!requestingDealId) return;
+    requestAnimationFrame(() => {
+      reviewRequestFormRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    });
+  }, [requestingDealId]);
 
   async function fetchDealCoachingCard(dealId: string) {
     const res = await fetch(`/api/coaching/deal-card?id=${encodeURIComponent(dealId)}`, { method: "GET" });
@@ -382,7 +390,10 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                   {isOpen ? (
                     <tr key={`${d.id}-form`} className="border-t border-[color:var(--sf-border)]">
                       <td colSpan={8} className="px-3 py-2 align-top">
-                        <div className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3">
+                        <div
+                          ref={reviewRequestFormRef}
+                          className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 scroll-mt-4"
+                        >
                           <textarea
                             value={noteText}
                             onChange={(e) => setNoteText(e.target.value)}
