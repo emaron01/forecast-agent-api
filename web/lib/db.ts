@@ -1542,6 +1542,11 @@ export type OrganizationRow = {
   updated_at: string;
 };
 
+/** Row from `listOrganizations` (includes per-org active user count). */
+export type OrganizationListRow = OrganizationRow & {
+  active_user_count: number;
+};
+
 export type UserRow = {
   id: number;
   public_id: string;
@@ -1618,28 +1623,36 @@ export async function listOrganizations(args?: { activeOnly?: boolean }) {
   const { rows } = await pool.query(
     `
     SELECT
-      id,
-      public_id::text AS public_id,
-      name,
-      active,
-      parent_org_id,
-      billing_plan,
-      hq_address_line1,
-      hq_address_line2,
-      hq_city,
-      hq_state,
-      hq_postal_code,
-      hq_country,
-      max_users,
-      created_at,
-      updated_at
-      FROM organizations
-     WHERE ($1::bool IS FALSE OR active IS TRUE)
-     ORDER BY id ASC
+      o.id,
+      o.public_id::text AS public_id,
+      o.name,
+      o.active,
+      o.parent_org_id,
+      o.billing_plan,
+      o.hq_address_line1,
+      o.hq_address_line2,
+      o.hq_city,
+      o.hq_state,
+      o.hq_postal_code,
+      o.hq_country,
+      o.max_users,
+      COALESCE(
+        (
+          SELECT COUNT(*)::int
+            FROM users u
+           WHERE u.org_id = o.id AND u.active IS TRUE
+        ),
+        0
+      ) AS active_user_count,
+      o.created_at,
+      o.updated_at
+      FROM organizations o
+     WHERE ($1::bool IS FALSE OR o.active IS TRUE)
+     ORDER BY o.id ASC
     `,
     [activeOnly]
   );
-  return rows as OrganizationRow[];
+  return rows as OrganizationListRow[];
 }
 
 export async function listAllUsersAcrossOrgs(args?: { includeInactive?: boolean; includeSuspendedOrgs?: boolean }) {

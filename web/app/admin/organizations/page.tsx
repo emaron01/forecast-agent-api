@@ -110,6 +110,8 @@ export default async function OrganizationsPage({
               <th className="px-4 py-3">public_id</th>
               <th className="px-4 py-3">name</th>
               <th className="px-4 py-3">active</th>
+              <th className="px-4 py-3 text-right">Paid users allowed</th>
+              <th className="px-4 py-3 text-right">Users activated</th>
               <th className="px-4 py-3 text-right">actions</th>
             </tr>
           </thead>
@@ -120,6 +122,8 @@ export default async function OrganizationsPage({
                   <td className="px-4 py-3 font-mono text-xs">{o.public_id}</td>
                   <td className="px-4 py-3">{o.name}</td>
                   <td className="px-4 py-3">{o.active ? "true" : "false"}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{o.max_users}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{o.active_user_count}</td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       <form action={setMasterOrgAction}>
@@ -153,7 +157,7 @@ export default async function OrganizationsPage({
               ))
             ) : (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
+                <td colSpan={6} className="px-4 py-6 text-center text-[color:var(--sf-text-disabled)]">
                   No organizations found.
                 </td>
               </tr>
