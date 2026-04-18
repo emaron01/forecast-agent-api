@@ -11,7 +11,7 @@ import { hashPassword } from "../../../lib/password";
 import { createOrganization, createOrganizationWithFirstAdmin, deleteOrganization, updateOrganization } from "../../../lib/db";
 import { resolvePublicId } from "../../../lib/publicId";
 
-const UpsertSchema = z.object({
+const OrgFieldsSchema = z.object({
   public_id: z.string().uuid().optional(),
   name: z.string().min(1),
   active: z
@@ -28,6 +28,10 @@ const UpsertSchema = z.object({
   hq_country: z.string().optional(),
 });
 
+const OrgWithMaxSchema = OrgFieldsSchema.extend({
+  max_users: z.coerce.number().int().min(1),
+});
+
 function norm(v: unknown) {
   const s = String(v ?? "").trim();
   return s ? s : null;
@@ -37,7 +41,7 @@ export async function createOrganizationAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const parsed = UpsertSchema.omit({ public_id: true }).parse({
+  const parsed = OrgFieldsSchema.omit({ public_id: true }).parse({
     name: formData.get("name"),
     active: formData.get("active") || undefined,
     parent_org_public_id: formData.get("parent_org_public_id") || undefined,
@@ -67,7 +71,7 @@ export async function createOrganizationAction(formData: FormData) {
   redirect("/admin/organizations");
 }
 
-const CreateWithAdminSchema = UpsertSchema.omit({ public_id: true }).extend({
+const CreateWithAdminSchema = OrgWithMaxSchema.omit({ public_id: true }).extend({
   admin_email: z.string().min(1),
   admin_password: z.string().optional(),
   admin_first_name: z.string().min(1),
@@ -99,6 +103,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
     hq_state: formData.get("hq_state") || undefined,
     hq_postal_code: formData.get("hq_postal_code") || undefined,
     hq_country: formData.get("hq_country") || undefined,
+    max_users: formData.get("max_users"),
 
     admin_email: formData.get("admin_email"),
     admin_password: formData.get("admin_password") || undefined,
@@ -141,6 +146,7 @@ export async function createOrganizationWithFirstAdminAction(formData: FormData)
       hq_state: norm(parsed.hq_state),
       hq_postal_code: norm(parsed.hq_postal_code),
       hq_country: norm(parsed.hq_country),
+      max_users: parsed.max_users,
     },
     admin: {
       email,
@@ -195,7 +201,7 @@ export async function updateOrganizationAction(formData: FormData) {
   const ctx = await requireAuth();
   if (ctx.kind !== "master") redirect("/admin");
 
-  const parsed = UpsertSchema.extend({ public_id: z.string().uuid() }).parse({
+  const parsed = OrgWithMaxSchema.extend({ public_id: z.string().uuid() }).parse({
     public_id: formData.get("public_id"),
     name: formData.get("name"),
     active: formData.get("active") || undefined,
@@ -207,6 +213,7 @@ export async function updateOrganizationAction(formData: FormData) {
     hq_state: formData.get("hq_state") || undefined,
     hq_postal_code: formData.get("hq_postal_code") || undefined,
     hq_country: formData.get("hq_country") || undefined,
+    max_users: formData.get("max_users"),
   });
 
   const id = await resolvePublicId("organizations", parsed.public_id);
@@ -223,6 +230,7 @@ export async function updateOrganizationAction(formData: FormData) {
     hq_state: norm(parsed.hq_state),
     hq_postal_code: norm(parsed.hq_postal_code),
     hq_country: norm(parsed.hq_country),
+    max_users: parsed.max_users,
   });
   revalidatePath("/admin/organizations");
   redirect("/admin/organizations");

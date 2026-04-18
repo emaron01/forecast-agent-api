@@ -207,6 +207,17 @@ export default async function OrganizationsPage({
                 placeholder="Free / Pro / Enterprise"
               />
             </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Max Users</label>
+              <input
+                type="number"
+                name="max_users"
+                min={1}
+                step={1}
+                required
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+              />
+            </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="grid gap-1">
                 <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Address 1</label>
@@ -396,6 +407,18 @@ export default async function OrganizationsPage({
                 defaultValue={org.billing_plan || ""}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
                 placeholder="free / pro / enterprise"
+              />
+            </div>
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Max Users</label>
+              <input
+                type="number"
+                name="max_users"
+                min={1}
+                step={1}
+                required
+                defaultValue={org.max_users}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               />
             </div>
             <div className="grid gap-3 md:grid-cols-2">

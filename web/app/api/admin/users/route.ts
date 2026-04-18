@@ -130,6 +130,9 @@ export async function POST(req: Request) {
   } catch (e: any) {
     // Unique email constraint
     if (String(e?.code || "") === "23505") return NextResponse.json({ ok: false, error: "email_taken" }, { status: 409 });
+    if (String(e?.message || "") === "user_limit_reached") {
+      return NextResponse.json({ ok: false, error: "user_limit_reached" }, { status: 403 });
+    }
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
 }

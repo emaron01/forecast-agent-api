@@ -1,8 +1,16 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { Modal } from "../_components/Modal";
 import { UserFormRoleSync } from "../_components/UserFormRoleSync";
 import { requireOrgContext } from "../../../lib/auth";
-import { getUserById, listDirectReportUserIds, listManagerVisibility, listRepUsersForManager, listUsers } from "../../../lib/db";
+import {
+  getOrganization,
+  getUserById,
+  listDirectReportUserIds,
+  listManagerVisibility,
+  listRepUsersForManager,
+  listUsers,
+} from "../../../lib/db";
 import { roleLabel } from "../../../lib/userRoles";
 import { resolvePublicId } from "../../../lib/publicId";
 import {
@@ -30,6 +38,16 @@ import {
 } from "../../../lib/roleHelpers";
 
 export const runtime = "nodejs";
+
+function serverAppBaseUrl() {
+  const fromEnv = String(process.env.APP_URL || "").replace(/\/+$/, "");
+  if (fromEnv) return fromEnv;
+  const h = headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "";
+  const proto = h.get("x-forwarded-proto") || "http";
+  if (host) return `${proto}://${host}`;
+  return "http://localhost:3000";
+}
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -67,6 +85,22 @@ export default async function UsersPage({
 }) {
   const { ctx, orgId } = await requireOrgContext();
 
+  const orgRow = await getOrganization({ id: orgId }).catch(() => null);
+  let activeCount = 0;
+  let maxUsers = 1;
+  if (orgRow?.public_id) {
+    const h = headers();
+    const res = await fetch(
+      `${serverAppBaseUrl()}/api/admin/organizations/${encodeURIComponent(orgRow.public_id)}/user-count`,
+      { headers: { cookie: h.get("cookie") || "" }, cache: "no-store" }
+    );
+    if (res.ok) {
+      const j = (await res.json().catch(() => null)) as { activeCount?: number; maxUsers?: number } | null;
+      if (j && typeof j.activeCount === "number") activeCount = j.activeCount;
+      if (j && typeof j.maxUsers === "number") maxUsers = j.maxUsers;
+    }
+  }
+
   const modal = sp(searchParams.modal) || "";
   const userPublicId = sp(searchParams.id) || "";
   const reset = sp(searchParams.reset) || "";
@@ -86,6 +120,9 @@ export default async function UsersPage({
 
   const isManager = ctx.kind === "user" && isManagerUser(ctx.user);
   const isAdmin = ctx.kind === "master" || (ctx.kind === "user" && isAdminUser(ctx.user));
+  const isOrgAdminOnly = ctx.kind === "user" && ctx.user.role === "ADMIN";
+  const atUserLimit = activeCount >= maxUsers;
+  const oneSlotRemaining = isOrgAdminOnly && activeCount === maxUsers - 1 && maxUsers >= 1;
 
   const roleOptions = [
     { role: "ADMIN" as const, label: roleLabel("ADMIN") },
@@ -199,13 +236,30 @@ export default async function UsersPage({
             {isManager ? "Manage REP users and assignments." : "Manage users, roles, and reporting lines."}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/admin/users?modal=new"
-            className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-          >
-            New user
-          </Link>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            {atUserLimit ? (
+              <button
+                type="button"
+                disabled
+                className="cursor-not-allowed rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] opacity-50"
+              >
+                New user
+              </button>
+            ) : (
+              <Link
+                href="/admin/users?modal=new"
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
+              >
+                New user
+              </Link>
+            )}
+          </div>
+          {isOrgAdminOnly && atUserLimit ? (
+            <p className="max-w-sm text-right text-xs text-[color:var(--sf-text-secondary)]">
+              User limit reached. Contact your Account Manager to add more users.
+            </p>
+          ) : null}
         </div>
       </div>
 
@@ -264,6 +318,15 @@ export default async function UsersPage({
           Clear
         </Link>
       </form>
+
+      <div className="mt-4 text-sm text-[color:var(--sf-text-primary)]">
+        Users: {activeCount} / {maxUsers}
+      </div>
+      {oneSlotRemaining ? (
+        <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">
+          You have 1 user slot remaining. Contact your Account Manager to add more users.
+        </p>
+      ) : null}
 
       <div className="mt-5 overflow-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] shadow-sm">
         <table className="w-full text-left text-sm">
@@ -393,6 +456,8 @@ export default async function UsersPage({
                     ? "CRM Account Owner Name is required for Reps only. Copy/paste it exactly as it appears in your CRM."
                     : error === "email_in_use"
                       ? "That email is already in use. Choose a different email."
+                      : error === "user_limit_reached"
+                        ? "User limit reached. Contact your Account Manager to add more users."
                       : error === "missing_visibility_assignments"
                         ? "Managers must have visibility assignments unless “Can View All User Data” is enabled."
                         : error === "invalid_manager"

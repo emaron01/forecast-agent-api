@@ -1537,6 +1537,7 @@ export type OrganizationRow = {
   hq_state: string | null;
   hq_postal_code: string | null;
   hq_country: string | null;
+  max_users: number;
   created_at: string;
   updated_at: string;
 };
@@ -1629,6 +1630,7 @@ export async function listOrganizations(args?: { activeOnly?: boolean }) {
       hq_state,
       hq_postal_code,
       hq_country,
+      max_users,
       created_at,
       updated_at
       FROM organizations
@@ -1694,6 +1696,7 @@ export async function getOrganization(args: { id: number }) {
       hq_state,
       hq_postal_code,
       hq_country,
+      max_users,
       created_at,
       updated_at
     FROM organizations
@@ -1703,6 +1706,20 @@ export async function getOrganization(args: { id: number }) {
     [id]
   );
   return (rows?.[0] as OrganizationRow | undefined) || null;
+}
+
+export async function countActiveUsersForOrg(args: { orgId: number }) {
+  const orgId = zOrganizationId.parse(args.orgId);
+  const { rows } = await pool.query(
+    `
+    SELECT COUNT(*)::int AS c
+      FROM users
+     WHERE org_id = $1 AND active = true
+    `,
+    [orgId]
+  );
+  const n = Number((rows?.[0] as { c?: number } | undefined)?.c);
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** Default `health_score_rules` rows for a new organization (master admin reset uses the same set). */
@@ -1741,10 +1758,12 @@ export async function createOrganization(args: {
   hq_state?: string | null;
   hq_postal_code?: string | null;
   hq_country?: string | null;
+  max_users?: number;
 }) {
   const name = String(args.name || "").trim();
   if (!name) throw new Error("name is required");
   const parent_org_id = args.parent_org_id == null || args.parent_org_id === ("" as any) ? null : zOrganizationId.parse(args.parent_org_id);
+  const max_users = args.max_users != null ? z.coerce.number().int().min(1).parse(args.max_users) : 1;
   const { rows } = await pool.query(
     `
     INSERT INTO organizations (
@@ -1758,10 +1777,11 @@ export async function createOrganization(args: {
       hq_state,
       hq_postal_code,
       hq_country,
+      max_users,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
     RETURNING
       id,
       public_id::text AS public_id,
@@ -1775,6 +1795,7 @@ export async function createOrganization(args: {
       hq_state,
       hq_postal_code,
       hq_country,
+      max_users,
       created_at,
       updated_at
     `,
@@ -1789,6 +1810,7 @@ export async function createOrganization(args: {
       args.hq_state ?? null,
       args.hq_postal_code ?? null,
       args.hq_country ?? null,
+      max_users,
     ]
   );
   const org = rows[0] as OrganizationRow;
@@ -1808,6 +1830,7 @@ export async function createOrganizationWithFirstAdmin(args: {
     hq_state?: string | null;
     hq_postal_code?: string | null;
     hq_country?: string | null;
+    max_users?: number;
   };
   admin: {
     email: string;
@@ -1841,6 +1864,9 @@ export async function createOrganizationWithFirstAdmin(args: {
       ? null
       : zOrganizationId.parse(args.organization.parent_org_id);
 
+  const max_users =
+    args.organization?.max_users != null ? z.coerce.number().int().min(1).parse(args.organization.max_users) : 1;
+
   return await withClient(async (c) => {
     await c.query("BEGIN");
     try {
@@ -1857,10 +1883,11 @@ export async function createOrganizationWithFirstAdmin(args: {
           hq_state,
           hq_postal_code,
           hq_country,
+          max_users,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
         RETURNING
           id,
           public_id::text AS public_id,
@@ -1874,6 +1901,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           hq_state,
           hq_postal_code,
           hq_country,
+          max_users,
           created_at,
           updated_at
         `,
@@ -1888,6 +1916,7 @@ export async function createOrganizationWithFirstAdmin(args: {
           args.organization?.hq_state ?? null,
           args.organization?.hq_postal_code ?? null,
           args.organization?.hq_country ?? null,
+          max_users,
         ]
       );
       const org = orgRes.rows[0] as OrganizationRow;
@@ -1987,11 +2016,14 @@ export async function updateOrganization(args: {
   hq_state?: string | null;
   hq_postal_code?: string | null;
   hq_country?: string | null;
+  max_users?: number;
 }) {
   const id = zOrganizationId.parse(args.id);
   const name = String(args.name || "").trim();
   if (!name) throw new Error("name is required");
   const parent_org_id = args.parent_org_id == null || args.parent_org_id === ("" as any) ? null : zOrganizationId.parse(args.parent_org_id);
+  const max_users =
+    args.max_users === undefined ? null : z.coerce.number().int().min(1).parse(args.max_users);
   const { rows } = await pool.query(
     `
     UPDATE organizations
@@ -2005,6 +2037,7 @@ export async function updateOrganization(args: {
            hq_state = COALESCE($9, hq_state),
            hq_postal_code = COALESCE($10, hq_postal_code),
            hq_country = COALESCE($11, hq_country),
+           max_users = COALESCE($12::integer, max_users),
            updated_at = NOW()
      WHERE id = $1
     RETURNING
@@ -2020,6 +2053,7 @@ export async function updateOrganization(args: {
       hq_state,
       hq_postal_code,
       hq_country,
+      max_users,
       created_at,
       updated_at
     `,
@@ -2035,6 +2069,7 @@ export async function updateOrganization(args: {
       args.hq_state ?? null,
       args.hq_postal_code ?? null,
       args.hq_country ?? null,
+      max_users,
     ]
   );
   return (rows?.[0] as OrganizationRow | undefined) || null;
@@ -2419,6 +2454,15 @@ export async function createUser(args: {
     args.manager_user_id == null || args.manager_user_id === ("" as any) ? null : zUserId.parse(args.manager_user_id);
   const admin_has_full_analytics_access = !!args.admin_has_full_analytics_access;
   const see_all_visibility = !!args.see_all_visibility;
+  const willBeActive = args.active !== false;
+  if (willBeActive) {
+    const orgRow = await getOrganization({ id: org_id });
+    if (!orgRow) throw new Error("organization not found");
+    const activeCount = await countActiveUsersForOrg({ orgId: org_id });
+    if (activeCount >= orgRow.max_users) {
+      throw new Error("user_limit_reached");
+    }
+  }
 
   const { rows } = await pool.query(
     `

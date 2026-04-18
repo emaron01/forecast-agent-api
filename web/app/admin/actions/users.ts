@@ -398,6 +398,9 @@ export async function createUserAction(formData: FormData) {
     if (msg.toLowerCase().includes("duplicate key") || msg.toLowerCase().includes("already exists")) {
       redirect(buildErrorRedirect({ ...prefill, error: "email_in_use" }));
     }
+    if (msg.toLowerCase().includes("user_limit_reached")) {
+      redirect(buildErrorRedirect({ ...prefill, error: "user_limit_reached" }));
+    }
     if (msg.toLowerCase().includes("manager_user_id")) {
       redirect(buildErrorRedirect({ ...prefill, error: "invalid_manager" }));
     }
