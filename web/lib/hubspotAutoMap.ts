@@ -6,7 +6,19 @@ export interface AutoMapResult {
   confidence: AutoMapConfidence;
 }
 
-const DEAL_META_FIELDS = ["deal_name", "amount", "close_date", "stage", "owner"] as const;
+const DEAL_META_FIELDS = [
+  "deal_name",
+  "amount",
+  "close_date",
+  "stage",
+  "owner",
+  "forecast_stage",
+  "product",
+  "partner_name",
+  "deal_reg",
+  "deal_reg_date",
+  "deal_reg_id",
+] as const;
 
 const HIGH_PROPS: Record<string, string> = {
   deal_name: "dealname",
@@ -14,6 +26,12 @@ const HIGH_PROPS: Record<string, string> = {
   close_date: "closedate",
   stage: "dealstage",
   owner: "hubspot_owner_id",
+  forecast_stage: "hs_forecast_category",
+  product: "dealtype",
+  partner_name: "partner_name",
+  deal_reg: "deal_registration",
+  deal_reg_date: "deal_registration_date",
+  deal_reg_id: "deal_registration_id",
 };
 
 function normProp(s: string) {
@@ -65,6 +83,24 @@ export function buildHubSpotAutoMap(propertyNames: string[]): AutoMapResult[] {
       out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
     } else if (sf === "owner") {
       const m = findBestMatch(names, ["hubspot_owner_id", "owner", "sales_owner"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "forecast_stage") {
+      const m = findBestMatch(names, ["hs_forecast_category", "forecast_category", "forecast_stage"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "product") {
+      const m = findBestMatch(names, ["dealtype", "product_name", "product", "hs_product_name"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "partner_name") {
+      const m = findBestMatch(names, ["partner_name", "partner", "alliance_partner"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "deal_reg") {
+      const m = findBestMatch(names, ["deal_registration", "deal_reg", "registration", "is_deal_registered"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "deal_reg_date") {
+      const m = findBestMatch(names, ["deal_registration_date", "registration_date", "reg_date"]);
+      out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
+    } else if (sf === "deal_reg_id") {
+      const m = findBestMatch(names, ["deal_registration_id", "registration_id", "reg_id", "registration_number"]);
       out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
     } else {
       out.push({ sf_field: sf, hubspot_property: null, confidence: "none" });

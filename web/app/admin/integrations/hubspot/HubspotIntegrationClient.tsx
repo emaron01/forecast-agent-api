@@ -18,11 +18,17 @@ function hubTierDisplayLabel(tier: string | null | undefined): string {
 type SavedMap = { sf_field: string; hubspot_property: string | null; confidence: string };
 
 const SF_LABELS: Record<string, string> = {
-  deal_name: "Deal Name",
-  amount: "Amount",
+  deal_name: "Opportunity Name",
+  amount: "Revenue (Amount)",
   close_date: "Close Date",
-  stage: "Stage",
-  owner: "Owner",
+  stage: "Sales Stage",
+  owner: "Account Owner",
+  forecast_stage: "Forecast Stage (Pro/Enterprise)",
+  product: "Product (optional)",
+  partner_name: "Partner Name (optional)",
+  deal_reg: "Deal Registration (optional)",
+  deal_reg_date: "Deal Registration Date (optional)",
+  deal_reg_id: "Deal Registration ID / Number (optional)",
 };
 
 export function HubspotIntegrationClient(props: {
@@ -40,6 +46,12 @@ export function HubspotIntegrationClient(props: {
   const [rows, setRows] = useState<Record<string, { hubspot_property: string | null; confidence: string }>>({});
   const [notesEngagements, setNotesEngagements] = useState(true);
   const [notesCustomProp, setNotesCustomProp] = useState("");
+  const [notesPreviewLoading, setNotesPreviewLoading] = useState(false);
+  const [notesPreview, setNotesPreview] = useState<{
+    checked: boolean;
+    deals_checked: number;
+    deals_with_notes: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [syncStatus, setSyncStatus] = useState<any>(null);
@@ -76,13 +88,24 @@ export function HubspotIntegrationClient(props: {
         setSuggestions(j.suggestions || []);
         const next: Record<string, { hubspot_property: string | null; confidence: string }> = {};
         const saved = (props.savedMappings || []).filter(
-          (x) => x.sf_field !== "notes_source" && x.sf_field !== "company_name"
+          (x) =>
+            x.sf_field !== "notes_source" &&
+            x.sf_field !== "company_name" &&
+            x.sf_field !== "crm_opp_id" &&
+            x.sf_field !== "create_date"
         );
         for (const s of saved) {
           next[s.sf_field] = { hubspot_property: s.hubspot_property, confidence: s.confidence || "none" };
         }
         for (const sug of j.suggestions || []) {
-          if (sug.sf_field === "notes_source") continue;
+          if (
+            sug.sf_field === "notes_source" ||
+            sug.sf_field === "company_name" ||
+            sug.sf_field === "crm_opp_id" ||
+            sug.sf_field === "create_date"
+          ) {
+            continue;
+          }
           if (!next[sug.sf_field]) {
             next[sug.sf_field] = { hubspot_property: sug.hubspot_property, confidence: sug.confidence };
           }
@@ -98,6 +121,30 @@ export function HubspotIntegrationClient(props: {
             setNotesEngagements(true);
           }
         }
+
+        setNotesPreviewLoading(true);
+        setNotesPreview(null);
+        void fetch("/api/integrations/hubspot/notes-preview")
+          .then(async (res) => {
+            const j = await res.json().catch(() => ({}));
+            if (cancelled) return;
+            setNotesPreviewLoading(false);
+            if (!res.ok || j.checked !== true || typeof j.deals_checked !== "number") {
+              setNotesPreview({ checked: false, deals_checked: 0, deals_with_notes: 0 });
+              return;
+            }
+            setNotesPreview({
+              checked: true,
+              deals_checked: j.deals_checked,
+              deals_with_notes: Number(j.deals_with_notes) || 0,
+            });
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setNotesPreviewLoading(false);
+              setNotesPreview({ checked: false, deals_checked: 0, deals_with_notes: 0 });
+            }
+          });
       } catch (e: any) {
         if (!cancelled) setErr(e?.message || String(e));
       }
@@ -349,7 +396,14 @@ export function HubspotIntegrationClient(props: {
                           : "bg-zinc-200 text-zinc-700";
                   return (
                     <tr key={sf} className="border-t border-[color:var(--sf-border)]">
-                      <td className="px-3 py-2 text-[color:var(--sf-text-primary)]">{label}</td>
+                      <td className="px-3 py-2 text-[color:var(--sf-text-primary)]">
+                        <div>{label}</div>
+                        {sf === "forecast_stage" ? (
+                          <p className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            Requires HubSpot Sales Hub Professional or Enterprise.
+                          </p>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2">
                         <select
                           className="w-full max-w-xs rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm"
@@ -383,9 +437,26 @@ export function HubspotIntegrationClient(props: {
 
           <div className="mt-6 space-y-3">
             <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Notes source</h3>
-            <label className="flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
-              <input type="checkbox" checked={notesEngagements} onChange={(e) => setNotesEngagements(e.target.checked)} />
-              Pull from HubSpot Notes/Engagements
+            <label className="flex items-start gap-2 text-sm text-[color:var(--sf-text-primary)]">
+              <input type="checkbox" className="mt-0.5" checked={notesEngagements} onChange={(e) => setNotesEngagements(e.target.checked)} />
+              <span>
+                <span className="block">Pull from HubSpot Notes/Engagements</span>
+                {notesPreviewLoading ? (
+                  <span className="mt-1 block text-[11px] text-[color:var(--sf-text-secondary)]">Checking for notes...</span>
+                ) : notesPreview?.checked === true ? (
+                  notesPreview.deals_with_notes > 0 ? (
+                    <span className="mt-1 block text-[11px] text-emerald-800">
+                      ✓ Found notes on {notesPreview.deals_with_notes} of {notesPreview.deals_checked} deals sampled
+                    </span>
+                  ) : (
+                    <span className="mt-1 block text-[11px] text-amber-900">
+                      ⚠ No notes found in sample — notes added in HubSpot will sync automatically
+                    </span>
+                  )
+                ) : notesPreview !== null ? (
+                  <span className="mt-1 block text-[11px] text-[color:var(--sf-text-secondary)]">— Could not check note availability</span>
+                ) : null}
+              </span>
             </label>
             <div>
               <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Also pull from custom text property (optional)</label>
@@ -403,8 +474,8 @@ export function HubspotIntegrationClient(props: {
               </select>
             </div>
             <p className="text-xs text-[color:var(--sf-text-secondary)]">
-              Notes are the primary input for AI scoring. Map at least one notes source for best results. If you have no notes in HubSpot, deals will be
-              scored on metadata only.
+              Notes are the primary input for AI scoring. Without notes, deals will sync and appear in your pipeline but will not receive an initial AI score.
+              We recommend mapping at least one notes source.
             </p>
             <button
               type="button"
@@ -426,7 +497,8 @@ export function HubspotIntegrationClient(props: {
               <div>
                 <div className="text-[color:var(--sf-text-primary)]">Sync in progress…</div>
                 <div className="mt-1 font-mono text-xs">
-                  fetched {syncStatus?.deals_fetched ?? 0} · upserted {syncStatus?.deals_upserted ?? 0} · scored {syncStatus?.deals_scored ?? 0}
+                  fetched {syncStatus?.deals_fetched ?? 0} · upserted (metadata) {syncStatus?.deals_upserted ?? 0} · baseline AI-scored{" "}
+                  {syncStatus?.deals_scored ?? 0}
                 </div>
               </div>
             ) : (

@@ -35,8 +35,14 @@ const SF_TO_TARGET: Record<string, string> = {
   deal_name: "opportunity_name",
   amount: "amount",
   close_date: "close_date",
-  stage: "forecast_stage",
+  stage: "sales_stage",
   owner: "rep_name",
+  forecast_stage: "forecast_stage",
+  product: "product",
+  partner_name: "partner_name",
+  deal_reg: "deal_registration",
+  deal_reg_date: "deal_reg_date",
+  deal_reg_id: "deal_reg_id",
 };
 
 async function getOrCreateHubspotMappingSetId(orgId: number): Promise<string | null> {
@@ -66,16 +72,17 @@ async function getOrCreateHubspotMappingSetId(orgId: number): Promise<string | n
 
 function buildIngestFieldMappings(rows: HubspotFieldRow[]) {
   const mappings: Array<{ source_field: string; target_field: string }> = [];
+  const skipSf = new Set(["notes_source", "company_name", "crm_opp_id", "create_date"]);
   for (const r of rows) {
-    if (!r || r.sf_field === "notes_source" || r.sf_field === "company_name") continue;
+    if (!r || skipSf.has(r.sf_field)) continue;
     const tgt = SF_TO_TARGET[r.sf_field];
     const src = String(r.hubspot_property || "").trim();
     if (!tgt || !src) continue;
     mappings.push({ source_field: src, target_field: tgt });
   }
   mappings.push({ source_field: "__sf_company_name__", target_field: "account_name" });
-  mappings.push({ source_field: "__hs_deal_id__", target_field: "crm_opp_id" });
-  mappings.push({ source_field: "createdate", target_field: "create_date_raw" });
+  mappings.push({ source_field: "__sf_crm_opp_id__", target_field: "crm_opp_id" });
+  mappings.push({ source_field: "__sf_create_date__", target_field: "create_date_raw" });
   mappings.push({ source_field: "__sf_comments__", target_field: "comments" });
   return mappings;
 }
@@ -119,25 +126,126 @@ async function loadHubspotFieldMappings(orgId: number): Promise<HubspotFieldRow[
   return (rows || []) as HubspotFieldRow[];
 }
 
-async function loadExistingCrmMeta(orgId: number): Promise<Set<string>> {
-  const { rows } = await pool.query<{ crm_opp_id: string | null }>(
+type DealHubMeta = { hasBaseline: boolean; runCount: number };
+
+async function loadDealMetaForHubIds(orgId: number, hubIds: string[]): Promise<Map<string, DealHubMeta>> {
+  const map = new Map<string, DealHubMeta>();
+  const ids = hubIds.map((x) => String(x || "").trim()).filter(Boolean);
+  if (!ids.length) return map;
+  const { rows } = await pool.query<{
+    crm_opp_id: string | null;
+    has_baseline: boolean;
+    run_count: string;
+  }>(
     `
-    SELECT NULLIF(btrim(COALESCE(crm_opp_id, '')), '') AS crm_opp_id
+    SELECT NULLIF(btrim(COALESCE(crm_opp_id, '')), '') AS crm_opp_id,
+           (baseline_health_score_ts IS NOT NULL) AS has_baseline,
+           COALESCE(run_count, 0)::text AS run_count
       FROM opportunities
      WHERE org_id = $1
-       AND (
-         baseline_health_score_ts IS NOT NULL
-         OR COALESCE(run_count, 0) > 0
-       )
+       AND NULLIF(btrim(COALESCE(crm_opp_id, '')), '') = ANY($2::text[])
     `,
-    [orgId]
+    [orgId, ids]
   );
-  const s = new Set<string>();
   for (const r of rows || []) {
     const id = String(r?.crm_opp_id || "").trim();
-    if (id) s.add(id);
+    if (!id) continue;
+    map.set(id, { hasBaseline: !!r?.has_baseline, runCount: Number(r?.run_count) || 0 });
   }
-  return s;
+  return map;
+}
+
+function mappedHubspotKey(rows: HubspotFieldRow[], sfField: string): string | null {
+  const h = rows.find((r) => r.sf_field === sfField)?.hubspot_property;
+  const s = String(h || "").trim();
+  return s || null;
+}
+
+function mappedCell(raw: Record<string, unknown>, hubspotPropertyKey: string | null): string {
+  if (!hubspotPropertyKey) return "";
+  const v = raw[hubspotPropertyKey];
+  return v == null ? "" : String(v).trim();
+}
+
+function validateHubSpotIngestRow(args: {
+  raw: Record<string, unknown>;
+  mappingRows: HubspotFieldRow[];
+  hubDealId: string;
+}): { ok: true } | { ok: false; reason: string } {
+  const { raw, mappingRows, hubDealId } = args;
+  const crm = String(raw.__sf_crm_opp_id__ ?? "").trim();
+  if (!crm) return { ok: false, reason: `missing crm_opp_id (hs_object_id) for deal ${hubDealId}` };
+  const cdr = String(raw.__sf_create_date__ ?? "").trim();
+  if (!cdr) return { ok: false, reason: `missing create_date (createdate) for deal ${hubDealId}` };
+  if (!Number.isFinite(Date.parse(cdr))) return { ok: false, reason: `invalid create_date for deal ${hubDealId}` };
+
+  for (const sf of ["deal_name", "amount", "close_date", "owner"] as const) {
+    const k = mappedHubspotKey(mappingRows, sf);
+    if (!k) return { ok: false, reason: `missing HubSpot mapping for ${sf} (deal ${hubDealId})` };
+    if (!mappedCell(raw, k)) return { ok: false, reason: `missing value for ${sf} (deal ${hubDealId})` };
+  }
+
+  const stageKey = mappedHubspotKey(mappingRows, "stage");
+  const fcKey = mappedHubspotKey(mappingRows, "forecast_stage");
+  const stageVal = mappedCell(raw, stageKey);
+  const fcVal = mappedCell(raw, fcKey);
+  if (!stageVal && !fcVal) {
+    return { ok: false, reason: `need sales stage or forecast stage (deal ${hubDealId})` };
+  }
+  return { ok: true };
+}
+
+async function appendSyncLogWarning(syncLogId: string, line: string): Promise<void> {
+  const msg = String(line || "").trim();
+  if (!msg) return;
+  try {
+    await pool.query(
+      `
+      UPDATE hubspot_sync_log
+         SET error_text = CASE
+           WHEN NULLIF(btrim(COALESCE(error_text, '')), '') IS NULL THEN $2
+           ELSE error_text || chr(10) || $2
+         END
+       WHERE id = $1::uuid
+      `,
+      [syncLogId, msg]
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+async function enqueueHubSpotCommentScoringJobs(args: {
+  orgId: number;
+  syncLogId: string;
+  pageJobTag: number;
+  rows: Array<{ crmOppId: string; rawText: string }>;
+}): Promise<void> {
+  const { orgId, syncLogId, pageJobTag, rows } = args;
+  if (!rows.length) return;
+  await new Promise((r) => setTimeout(r, 500));
+  const queue = getIngestQueue();
+  if (!queue || QUEUE_NAME !== "opportunity-ingest") return;
+  const jobId = ["excel-comments", "hubspot", orgId, syncLogId, String(pageJobTag)].join("_");
+  try {
+    await queue.add(
+      "excel-comments",
+      {
+        orgId,
+        fileName: "hubspot-ingest",
+        rows,
+      },
+      {
+        jobId,
+        attempts: 8,
+        backoff: { type: "exponential", delay: 2000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+  } catch {
+    /* enqueue best-effort */
+  }
 }
 
 async function applyMetadataUpsert(args: {
@@ -183,9 +291,9 @@ async function buildRawRowForDeal(args: {
     row[src] = v == null ? "" : String(v);
   }
 
-  row.__hs_deal_id__ = deal.id;
   const cd = props["createdate"] ?? props["hs_createdate"];
-  row["createdate"] = cd == null ? new Date().toISOString() : String(cd);
+  row.__sf_crm_opp_id__ = String(props["hs_object_id"] ?? "").trim() || String(deal.id ?? "").trim();
+  row.__sf_create_date__ = cd == null ? "" : String(cd);
 
   const ownerId = String(props["hubspot_owner_id"] ?? "").trim();
   if (ownerId) {
@@ -292,15 +400,14 @@ export async function runHubSpotIngest(params: {
 
     const { after, before } = getHubspotScoringCloseDateBounds();
     const extraProps = mappingRows
-      .filter((r) => r.sf_field !== "company_name")
+      .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
       .map((r) => String(r.hubspot_property || "").trim())
       .filter((p) => p && p !== "notes_source" && !p.startsWith("{"));
-
-    const existingMeta = await loadExistingCrmMeta(orgId);
 
     let cursor: string | undefined;
     let totalProcessed = 0;
     do {
+      const pageJobTag = totalProcessed;
       const page = await getDealsWithCompanies(orgId, {
         after: cursor,
         limit: 100,
@@ -320,10 +427,16 @@ export async function runHubSpotIngest(params: {
       const deals = page.data.deals;
       await updateSyncLog(syncLogId, { deals_fetched: deals.length });
 
+      const hubIds = deals.map((d) => String(d.id || "").trim()).filter(Boolean);
+      const dealMeta = await loadDealMetaForHubIds(orgId, hubIds);
+
       const newRows: Record<string, unknown>[] = [];
       const excelRows: Array<{ crmOppId: string; rawText: string }> = [];
 
       for (const deal of deals) {
+        const crmId = String(deal.id || "").trim();
+        if (!crmId) continue;
+
         const raw = await buildRawRowForDeal({
           orgId,
           deal,
@@ -331,15 +444,31 @@ export async function runHubSpotIngest(params: {
           notesSource,
           ownerCache,
         });
-        const crmId = String(deal.id || "").trim();
-        if (!crmId) continue;
 
-        if (existingMeta.has(crmId)) {
+        const v = validateHubSpotIngestRow({ raw, mappingRows, hubDealId: crmId });
+        if (v.ok === false) {
+          await appendSyncLogWarning(syncLogId, `Skipping deal ${crmId}: ${v.reason}`);
+          continue;
+        }
+
+        const comments = String(raw.__sf_comments__ || "").trim();
+        if (!comments) {
+          await appendSyncLogWarning(syncLogId, `no notes found for deal ${crmId} — ingested without baseline score`);
+        }
+
+        const meta = dealMeta.get(crmId);
+        const hasBaseline = !!(meta?.hasBaseline || (meta?.runCount ?? 0) > 0);
+        const existsInDb = !!meta;
+
+        if (existsInDb && hasBaseline) {
           const up = await applyMetadataUpsert({ orgId, mappingSetId, rawRow: raw });
           if (up.ok) await updateSyncLog(syncLogId, { deals_upserted: 1 });
+        } else if (existsInDb && !hasBaseline && syncType === "manual") {
+          const up = await applyMetadataUpsert({ orgId, mappingSetId, rawRow: raw });
+          if (up.ok) await updateSyncLog(syncLogId, { deals_upserted: 1 });
+          if (comments) excelRows.push({ crmOppId: crmId, rawText: comments });
         } else {
           newRows.push(raw);
-          const comments = String(raw.__sf_comments__ || "").trim();
           if (comments) excelRows.push({ crmOppId: crmId, rawText: comments });
         }
       }
@@ -353,36 +482,15 @@ export async function runHubSpotIngest(params: {
         const summary = await processIngestionBatch({ organizationId: orgId, mappingSetId });
         const processed = Number(summary?.processed || 0) || 0;
         await updateSyncLog(syncLogId, { deals_upserted: processed, deals_scored: processed });
+      }
 
-        if (excelRows.length) {
-          const queue = getIngestQueue();
-          if (queue && QUEUE_NAME === "opportunity-ingest") {
-            const jobId = ["excel-comments", "hubspot", orgId, syncLogId, String(totalProcessed)].join("_");
-            try {
-              await queue.add(
-                "excel-comments",
-                {
-                  orgId,
-                  fileName: "hubspot-ingest",
-                  rows: excelRows,
-                },
-                {
-                  jobId,
-                  attempts: 8,
-                  backoff: { type: "exponential", delay: 2000 },
-                  removeOnComplete: true,
-                  removeOnFail: false,
-                }
-              );
-            } catch {
-              /* enqueue best-effort */
-            }
-          }
-        }
-        for (const r of newRows) {
-          const id = String(r.__hs_deal_id__ || "").trim();
-          if (id) existingMeta.add(id);
-        }
+      if (excelRows.length) {
+        await enqueueHubSpotCommentScoringJobs({
+          orgId,
+          syncLogId,
+          pageJobTag,
+          rows: excelRows,
+        });
       }
 
       totalProcessed += deals.length;
@@ -412,7 +520,7 @@ export async function syncHubSpotDealMetadataOnly(args: { orgId: number; dealId:
     await replaceFieldMappings({ mappingSetId, mappings: ingestMappings });
 
     const extraProps = mappingRows
-      .filter((r) => r.sf_field !== "company_name")
+      .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
       .map((r) => String(r.hubspot_property || "").trim())
       .filter((p) => p && p !== "notes_source" && !p.startsWith("{"));
     const dealRes = await getDealByIdWithCompany(orgId, dealId, extraProps);
