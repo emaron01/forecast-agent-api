@@ -176,6 +176,8 @@ export type RepRow = {
   organization_id: number;
 };
 
+export type RepRowWithRelinked = RepRow & { relinked_opportunities: number };
+
 export type OpportunityRow = {
   id: number;
   public_id: string;
@@ -1117,7 +1119,16 @@ export async function createRep(args: {
       organizationId,
     ]
   );
-  return rows[0] as RepRow;
+  const newRep = rows[0] as RepRow;
+  await pool.query(
+    `UPDATE opportunities
+        SET rep_id = $1
+      WHERE org_id = $2
+        AND rep_id IS NULL
+        AND LOWER(rep_name) = LOWER($3)`,
+    [newRep.id, organizationId, args.crm_owner_name ?? null]
+  );
+  return newRep;
 }
 
 export async function updateRep(args: {
@@ -1131,7 +1142,7 @@ export async function updateRep(args: {
   manager_rep_id?: number | null;
   role?: string | null;
   active?: boolean | null;
-}) {
+}): Promise<RepRowWithRelinked | null> {
   const organizationId = zOrganizationId.parse(args.organizationId);
   const repId = z.coerce.number().int().positive().parse(args.repId);
   const rep_name = String(args.rep_name || "").trim();
@@ -1176,7 +1187,18 @@ export async function updateRep(args: {
       args.active ?? true,
     ]
   );
-  return (rows?.[0] as RepRow | undefined) || null;
+  const rep = (rows?.[0] as RepRow | undefined) || null;
+  if (!rep) return null;
+  const result = await pool.query(
+    `UPDATE opportunities
+        SET rep_id = $1
+      WHERE org_id = $2
+        AND rep_id IS NULL
+        AND LOWER(rep_name) = LOWER($3)`,
+    [rep.id, organizationId, args.crm_owner_name ?? null]
+  );
+  const relinked = result.rowCount ?? 0;
+  return { ...rep, relinked_opportunities: relinked };
 }
 
 export async function deleteRep(args: { organizationId: number; repId: number }) {
