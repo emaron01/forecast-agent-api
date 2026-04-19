@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const verified = verifyHubSpotOAuthState(state);
   if (verified.ok === false) return NextResponse.json({ ok: false, error: "Invalid state" }, { status: 400 });
 
-  const orgId = verified.data.orgId;
+  const { orgId, hubTier } = verified.data;
   const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
   const redirectUri = `${appUrl}/api/integrations/hubspot/callback`;
 
@@ -34,17 +34,18 @@ export async function GET(req: Request) {
   await pool.query(
     `
     INSERT INTO hubspot_connections (
-      org_id, hub_id, hub_domain, access_token_enc, refresh_token_enc, token_expires_at, scopes, writeback_enabled, updated_at
-    ) VALUES ($1, $2, NULL, $3, $4, $5, $6::text[], false, now())
+      org_id, hub_id, hub_domain, access_token_enc, refresh_token_enc, token_expires_at, scopes, writeback_enabled, hub_tier, updated_at
+    ) VALUES ($1, $2, NULL, $3, $4, $5, $6::text[], false, $7, now())
     ON CONFLICT (org_id) DO UPDATE SET
       hub_id = EXCLUDED.hub_id,
       access_token_enc = EXCLUDED.access_token_enc,
       refresh_token_enc = EXCLUDED.refresh_token_enc,
       token_expires_at = EXCLUDED.token_expires_at,
       scopes = EXCLUDED.scopes,
+      hub_tier = EXCLUDED.hub_tier,
       updated_at = now()
     `,
-    [orgId, hubId, encAccess.data, encRefresh.data, expiresAt.toISOString(), scopes.length ? scopes : null]
+    [orgId, hubId, encAccess.data, encRefresh.data, expiresAt.toISOString(), scopes.length ? scopes : null, hubTier]
   );
 
   redirect(`${appUrl}/admin/integrations/hubspot`);

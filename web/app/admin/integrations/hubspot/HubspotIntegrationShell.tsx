@@ -9,7 +9,8 @@ export async function HubspotIntegrationShell(props: { orgId: number }) {
 
   const { rows: connRows } = await pool.query(
     `
-    SELECT hub_domain, connected_at::text AS connected_at, last_synced_at::text AS last_synced_at, writeback_enabled
+    SELECT hub_domain, connected_at::text AS connected_at, last_synced_at::text AS last_synced_at, writeback_enabled,
+           hub_tier::text AS hub_tier
       FROM hubspot_connections
      WHERE org_id = $1
      LIMIT 1

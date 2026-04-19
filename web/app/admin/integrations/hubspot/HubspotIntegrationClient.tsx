@@ -4,10 +4,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Conn = {
   hub_domain: string | null;
+  hub_tier: string | null;
   connected_at: string | null;
   last_synced_at: string | null;
   writeback_enabled: boolean;
 } | null;
+
+function hubTierDisplayLabel(tier: string | null | undefined): string {
+  if (tier === "starter") return "Starter";
+  return "Professional / Enterprise";
+}
 
 type SavedMap = { sf_field: string; hubspot_property: string | null; confidence: string };
 
@@ -39,6 +45,8 @@ export function HubspotIntegrationClient(props: {
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [writeback, setWriteback] = useState(!!props.connection?.writeback_enabled);
   const [poll, setPoll] = useState(false);
+  /** Tier sent as `?tier=` on the HubSpot OAuth connect URL (default Professional / Enterprise). */
+  const [oauthConnectTier, setOauthConnectTier] = useState<"starter" | "professional">("professional");
 
   useEffect(() => {
     setConnection(props.connection);
@@ -170,8 +178,8 @@ export function HubspotIntegrationClient(props: {
     return () => clearInterval(id);
   }, [poll, pollSync]);
 
-  const disconnect = async () => {
-    if (!confirm("Disconnect HubSpot for this organization?")) return;
+  const disconnect = async (message?: string) => {
+    if (!confirm(message || "Disconnect HubSpot for this organization?")) return;
     setBusy(true);
     setErr("");
     try {
@@ -188,6 +196,11 @@ export function HubspotIntegrationClient(props: {
       setBusy(false);
     }
   };
+
+  const updatePlanTier = () =>
+    disconnect(
+      "To change your HubSpot plan tier, this integration will disconnect. Choose Starter or Professional/Enterprise below, then connect again to re-authorize the correct HubSpot scopes."
+    );
 
   const syncNow = async () => {
     setBusy(true);
@@ -242,8 +255,36 @@ export function HubspotIntegrationClient(props: {
             <p className="text-sm text-[color:var(--sf-text-secondary)]">
               Connect your HubSpot account to sync deals into SalesForecast.io. You&apos;ll map your fields in the next step.
             </p>
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-[color:var(--sf-text-secondary)]">HubSpot plan</div>
+              <div className="flex flex-col gap-2 text-sm text-[color:var(--sf-text-primary)]">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="hubspot-oauth-tier"
+                    className="accent-[color:var(--sf-button-primary-bg)]"
+                    checked={oauthConnectTier === "starter"}
+                    onChange={() => setOauthConnectTier("starter")}
+                  />
+                  Starter
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="radio"
+                    name="hubspot-oauth-tier"
+                    className="accent-[color:var(--sf-button-primary-bg)]"
+                    checked={oauthConnectTier === "professional"}
+                    onChange={() => setOauthConnectTier("professional")}
+                  />
+                  Professional / Enterprise
+                </label>
+              </div>
+              <p className="text-xs text-[color:var(--sf-text-secondary)]">
+                Starter includes core deal sync. Professional/Enterprise adds HubSpot native forecast stage data for additional deal context.
+              </p>
+            </div>
             <a
-              href="/api/integrations/hubspot/connect"
+              href={`/api/integrations/hubspot/connect?tier=${oauthConnectTier}`}
               className="inline-flex rounded-md bg-[color:var(--sf-button-primary-bg)] px-4 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
             >
               Connect HubSpot
@@ -256,16 +297,29 @@ export function HubspotIntegrationClient(props: {
               <span className="text-[color:var(--sf-text-secondary)]">{connection.hub_domain || "HubSpot"}</span>
             </div>
             <div className="text-[color:var(--sf-text-secondary)]">
+              HubSpot plan: <span className="text-[color:var(--sf-text-primary)]">{hubTierDisplayLabel(connection.hub_tier)}</span>
+            </div>
+            <div className="text-[color:var(--sf-text-secondary)]">
               Connected {connection.connected_at ? new Date(connection.connected_at).toLocaleString() : "—"}
             </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={disconnect}
-              className="rounded-md border border-[#E74C3C] px-3 py-1.5 text-xs font-medium text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-50"
-            >
-              Disconnect
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => disconnect()}
+                className="rounded-md border border-[#E74C3C] px-3 py-1.5 text-xs font-medium text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={updatePlanTier}
+                className="text-xs font-medium text-[color:var(--sf-text-primary)] underline decoration-[color:var(--sf-border)] underline-offset-2 hover:decoration-[color:var(--sf-text-primary)] disabled:opacity-50"
+              >
+                Update plan
+              </button>
+            </div>
           </div>
         )}
       </section>

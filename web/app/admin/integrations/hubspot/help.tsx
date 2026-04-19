@@ -72,6 +72,13 @@ export function HubspotIntegrationHelp() {
               workflow.
             </dd>
           </div>
+          <div>
+            <dt className="font-medium text-[color:var(--sf-text-primary)]">Which HubSpot plan do I need?</dt>
+            <dd className="mt-1">
+              Starter works with any HubSpot account including free. Professional/Enterprise adds native HubSpot forecast stage sync and requires Sales Hub
+              Professional or higher.
+            </dd>
+          </div>
         </dl>
       </section>
     </div>

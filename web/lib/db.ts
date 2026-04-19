@@ -16,6 +16,9 @@ import { ALL_HIERARCHY_LEVELS, HIERARCHY, canSeeFullOrg, isAdminLevel, isChannel
  * See `docs/ID_POLICY.md`.
  */
 
+/** `hubspot_connections.hub_tier` — which OAuth scope bundle was granted (see `buildOAuthScopes` in hubspotClient). */
+export type HubSpotConnectionHubTier = "starter" | "professional" | "enterprise";
+
 // -----------------------------
 // Deal review question packs
 // -----------------------------

@@ -1,7 +1,10 @@
 import "server-only";
 
 import crypto from "crypto";
+import type { HubSpotConnectionHubTier } from "./db";
 import { pool } from "./pool";
+
+export type { HubSpotConnectionHubTier } from "./db";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +51,7 @@ type HubspotConnectionRow = {
   token_expires_at: Date;
   scopes: string[] | null;
   writeback_enabled: boolean;
+  hub_tier: HubSpotConnectionHubTier;
 };
 
 // ---------------------------------------------------------------------------
@@ -119,7 +123,8 @@ async function loadConnection(orgId: number): Promise<HubSpotResult<HubspotConne
         refresh_token_enc,
         token_expires_at,
         scopes,
-        writeback_enabled
+        writeback_enabled,
+        hub_tier::text AS hub_tier
       FROM hubspot_connections
       WHERE org_id = $1
       LIMIT 1
@@ -793,17 +798,37 @@ export function verifyWebhookSignature(params: {
   }
 }
 
+/** HubSpot OAuth `scope` string for the given portal tier (forecast scopes only for non-starter). */
+export function buildOAuthScopes(tier: HubSpotConnectionHubTier): string {
+  const base = [
+    "crm.objects.companies.read",
+    "crm.objects.contacts.read",
+    "crm.objects.deals.read",
+    "crm.objects.deals.write",
+    "crm.objects.owners.read",
+    "crm.pipelines.orders.read",
+    "crm.schemas.companies.read",
+    "crm.schemas.contacts.read",
+    "crm.schemas.deals.read",
+  ];
+  const proScopes = ["crm.objects.forecasts.read", "crm.schemas.forecasts.read"];
+  return tier === "starter" ? base.join(" ") : [...base, ...proScopes].join(" ");
+}
+
 /** Exchange authorization code for tokens (OAuth callback). */
-export function signHubSpotOAuthState(orgId: number): HubSpotResult<string> {
+export function signHubSpotOAuthState(orgId: number, hubTier: HubSpotConnectionHubTier): HubSpotResult<string> {
   const sec = sessionSecret();
   if (!sec) return { ok: false, error: "SESSION_SECRET missing" };
   const ts = Date.now();
-  const payload = Buffer.from(JSON.stringify({ orgId, ts }), "utf8").toString("base64url");
+  const payload = Buffer.from(JSON.stringify({ orgId, ts, hubTier }), "utf8").toString("base64url");
   const sig = crypto.createHmac("sha256", sec).update(payload).digest("base64url");
   return { ok: true, data: `${payload}.${sig}` };
 }
 
-export function verifyHubSpotOAuthState(state: string, maxAgeMs = 15 * 60 * 1000): HubSpotResult<{ orgId: number }> {
+export function verifyHubSpotOAuthState(
+  state: string,
+  maxAgeMs = 15 * 60 * 1000
+): HubSpotResult<{ orgId: number; hubTier: HubSpotConnectionHubTier }> {
   const sec = sessionSecret();
   if (!sec) return { ok: false, error: "SESSION_SECRET missing" };
   const raw = String(state || "").trim();
@@ -825,7 +850,10 @@ export function verifyHubSpotOAuthState(state: string, maxAgeMs = 15 * 60 * 1000
   const ts = Number(parsed?.ts);
   if (!Number.isFinite(orgId) || orgId <= 0 || !Number.isFinite(ts)) return { ok: false, error: "Invalid state" };
   if (Date.now() - ts > maxAgeMs) return { ok: false, error: "State expired" };
-  return { ok: true, data: { orgId: Math.trunc(orgId) } };
+  const rawTier = parsed?.hubTier;
+  const hubTier: HubSpotConnectionHubTier =
+    rawTier === "starter" || rawTier === "professional" || rawTier === "enterprise" ? rawTier : "professional";
+  return { ok: true, data: { orgId: Math.trunc(orgId), hubTier } };
 }
 
 export async function hubspotExchangeCodeForTokens(args: {
