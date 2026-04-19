@@ -13,6 +13,7 @@ import { runCommentIngestionTurn, getPromptVersionHash } from "../lib/commentIng
 import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
 import { outcomeFromOpportunityRow } from "../lib/opportunityOutcome";
+import { markHubSpotDealDeleted, runHubSpotIngest, syncHubSpotDealMetadataOnly } from "../lib/hubspotIngest";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
@@ -131,6 +132,31 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
 async function processJob(job: { data: any; id?: string; name?: string; updateProgress: (p: object) => Promise<void> }) {
   if (job.name === "single-ingest") {
     return processSingleIngest(job);
+  }
+
+  if (job.name === "hubspot-initial-sync") {
+    const { orgId, syncLogId, syncType } = job.data || {};
+    if (!orgId || !syncLogId) throw new Error("Invalid hubspot-initial-sync job");
+    await runHubSpotIngest({
+      orgId: Number(orgId),
+      syncLogId: String(syncLogId),
+      syncType: syncType === "manual" || syncType === "scheduled" ? syncType : "initial",
+    });
+    return { ok: true };
+  }
+
+  if (job.name === "hubspot-deal-update") {
+    const { orgId, dealId } = job.data || {};
+    if (!orgId || !dealId) throw new Error("Invalid hubspot-deal-update job");
+    await syncHubSpotDealMetadataOnly({ orgId: Number(orgId), dealId: String(dealId) });
+    return { ok: true };
+  }
+
+  if (job.name === "hubspot-deal-delete") {
+    const { orgId, dealId } = job.data || {};
+    if (!orgId || !dealId) throw new Error("Invalid hubspot-deal-delete job");
+    await markHubSpotDealDeleted({ orgId: Number(orgId), dealId: String(dealId) });
+    return { ok: true };
   }
 
   const { orgId, fileName, rows } = job.data;

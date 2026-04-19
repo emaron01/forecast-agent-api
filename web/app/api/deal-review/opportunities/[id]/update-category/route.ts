@@ -24,6 +24,7 @@ import {
   fallbackForEvidenceOnly,
 } from "../../../../../../lib/categoryUpdateDeltas";
 import { loadScoringDiscipline, loadConversationalRules, promptHash } from "../../../../../../lib/masterDcoPrompt";
+import { writeMatthewScoresToHubSpotDeal } from "../../../../../../lib/hubspotClient";
 
 export const runtime = "nodejs";
 
@@ -1226,6 +1227,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               nextSteps,
               ...sseEntity,
             });
+            void writeMatthewScoresToHubSpotDeal({ orgId, opportunityPublicId }).catch(() => {});
 
             const oppAfter = await fetchOpportunity(orgId, opportunityId);
             const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
@@ -1440,6 +1442,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       nextSteps,
       ...jsonEntity,
     });
+    void writeMatthewScoresToHubSpotDeal({ orgId, opportunityPublicId }).catch(() => {});
 
     const oppAfter = await fetchOpportunity(orgId, opportunityId);
     const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);

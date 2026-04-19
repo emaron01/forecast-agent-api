@@ -2093,6 +2093,9 @@ export async function deleteOrganization(args: { id: number }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    await client.query(`DELETE FROM hubspot_sync_log WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM hubspot_field_mappings WHERE org_id = $1`, [id]);
+    await client.query(`DELETE FROM hubspot_connections WHERE org_id = $1`, [id]);
     // Delete in dependency order so no orphaned rows remain and FKs (including non-CASCADE) are satisfied.
     // 1. Collect rep IDs (for quota manager cleanup)
     const repIdsResult = await client.query(
