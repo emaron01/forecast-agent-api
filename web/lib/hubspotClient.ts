@@ -1,5 +1,3 @@
-import "server-only";
-
 import crypto from "crypto";
 import type { HubSpotConnectionHubTier } from "./db";
 import { pool } from "./pool";
