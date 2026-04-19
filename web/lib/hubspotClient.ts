@@ -39,6 +39,13 @@ export type HubSpotEngagement = {
   body: string;
 };
 
+export type HubSpotOwner = {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+};
+
 type HubspotConnectionRow = {
   id: string;
   org_id: string;
@@ -627,6 +634,35 @@ export async function getDealEngagements(orgId: number, dealId: string): Promise
   notes.data.forEach((id, i) => engagements.push({ id, type: "NOTE", body: noteBodies.data[i] || "" }));
   calls.data.forEach((id, i) => engagements.push({ id, type: "CALL", body: callBodies.data[i] || "" }));
   return { ok: true, data: engagements };
+}
+
+/**
+ * Lists CRM owners (`GET /crm/v3/owners?limit=100`), following `paging.next.after` when present.
+ */
+export async function getOwners(orgId: number): Promise<HubSpotResult<HubSpotOwner[]>> {
+  const out: HubSpotOwner[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const url = new URL("https://api.hubapi.com/crm/v3/owners");
+    url.searchParams.set("limit", "100");
+    if (after) url.searchParams.set("after", after);
+    const res = await hubspotAuthorizedJson(orgId, "GET", url.toString());
+    if (res.ok === false) return { ok: false, error: res.error };
+    const results = Array.isArray(res.json?.results) ? res.json.results : [];
+    for (const r of results) {
+      out.push({
+        id: String(r?.id ?? "").trim(),
+        email: String(r?.email ?? "").trim(),
+        firstName: String(r?.firstName ?? "").trim(),
+        lastName: String(r?.lastName ?? "").trim(),
+      });
+    }
+    const next = res.json?.paging?.next?.after;
+    if (next == null || String(next).trim() === "") break;
+    after = String(next).trim();
+    if (!results.length) break;
+  }
+  return { ok: true, data: out };
 }
 
 export async function getOwnerEmailOrName(orgId: number, ownerId: string): Promise<HubSpotResult<string>> {

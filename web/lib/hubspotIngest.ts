@@ -9,7 +9,7 @@ import {
   getDealByIdWithCompany,
   getDealEngagements,
   getDealsWithCompanies,
-  getOwnerEmailOrName,
+  getOwners,
   type HubSpotDealWithCompany,
 } from "./hubspotClient";
 import { getIngestQueue, QUEUE_NAME } from "./ingest-queue";
@@ -179,10 +179,16 @@ function validateHubSpotIngestRow(args: {
   if (!cdr) return { ok: false, reason: `missing create_date (createdate) for deal ${hubDealId}` };
   if (!Number.isFinite(Date.parse(cdr))) return { ok: false, reason: `invalid create_date for deal ${hubDealId}` };
 
-  for (const sf of ["deal_name", "amount", "close_date", "owner"] as const) {
+  for (const sf of ["deal_name", "amount", "close_date"] as const) {
     const k = mappedHubspotKey(mappingRows, sf);
     if (!k) return { ok: false, reason: `missing HubSpot mapping for ${sf} (deal ${hubDealId})` };
     if (!mappedCell(raw, k)) return { ok: false, reason: `missing value for ${sf} (deal ${hubDealId})` };
+  }
+  {
+    const ownerKey = mappedHubspotKey(mappingRows, "owner");
+    if (!ownerKey) return { ok: false, reason: `missing HubSpot mapping for owner (deal ${hubDealId})` };
+    const resolved = String(raw.__sf_owner__ ?? "").trim();
+    if (!resolved) return { ok: false, reason: `missing value for owner (deal ${hubDealId})` };
   }
 
   const stageKey = mappedHubspotKey(mappingRows, "stage");
@@ -277,9 +283,10 @@ async function buildRawRowForDeal(args: {
   deal: HubSpotDealWithCompany;
   mappingRows: HubspotFieldRow[];
   notesSource: { engagements: boolean; custom_property: string | null };
-  ownerCache: Map<string, string>;
+  ownerMap: Map<string, string>;
+  syncLogId?: string | null;
 }): Promise<Record<string, unknown>> {
-  const { deal, mappingRows, notesSource, orgId, ownerCache } = args;
+  const { deal, mappingRows, notesSource, orgId, ownerMap, syncLogId } = args;
   const props = deal.properties || {};
   const row: Record<string, unknown> = {};
 
@@ -296,19 +303,17 @@ async function buildRawRowForDeal(args: {
   row.__sf_create_date__ = cd == null ? "" : String(cd);
 
   const ownerId = String(props["hubspot_owner_id"] ?? "").trim();
-  if (ownerId) {
-    let rep = ownerCache.get(ownerId);
-    if (rep == null) {
-      const resolved = await getOwnerEmailOrName(orgId, ownerId);
-      rep = resolved.ok ? resolved.data : "";
-      ownerCache.set(ownerId, rep);
-    }
-    const ownerSrc = mappingRows.find((r) => r.sf_field === "owner")?.hubspot_property;
-    if (ownerSrc && row[ownerSrc] == null) {
-      row[String(ownerSrc)] = rep || ownerId;
-    } else if (ownerSrc) {
-      row[String(ownerSrc)] = String(row[String(ownerSrc)] || rep || ownerId);
-    }
+  const ownerEmail = ownerId ? String(ownerMap.get(ownerId) ?? "").trim() : "";
+  if (ownerId && !ownerEmail && syncLogId) {
+    await appendSyncLogWarning(
+      syncLogId,
+      `Could not resolve HubSpot owner id ${ownerId} to an email for deal ${deal.id}`
+    );
+  }
+  row.__sf_owner__ = ownerEmail;
+  const ownerSrc = mappingRows.find((r) => r.sf_field === "owner")?.hubspot_property;
+  if (ownerSrc) {
+    row[String(ownerSrc)] = ownerEmail;
   }
 
   const parts: string[] = [];
@@ -383,7 +388,6 @@ export async function runHubSpotIngest(params: {
   syncType: "initial" | "scheduled" | "manual";
 }): Promise<void> {
   const { orgId, syncLogId, syncType } = params;
-  const ownerCache = new Map<string, string>();
   try {
     await updateSyncLog(syncLogId, { status: "running", error_text: null });
 
@@ -403,6 +407,19 @@ export async function runHubSpotIngest(params: {
       .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
       .map((r) => String(r.hubspot_property || "").trim())
       .filter((p) => p && p !== "notes_source" && !p.startsWith("{"));
+
+    const ownerMap = new Map<string, string>();
+    const ownersRes = await getOwners(orgId);
+    if (ownersRes.ok === false) {
+      await appendSyncLogWarning(
+        syncLogId,
+        `HubSpot owners list failed (${ownersRes.error}) — owner resolution may skip deals`
+      );
+    } else {
+      for (const o of ownersRes.data) {
+        if (o.id && o.email) ownerMap.set(o.id, o.email);
+      }
+    }
 
     let cursor: string | undefined;
     let totalProcessed = 0;
@@ -442,7 +459,8 @@ export async function runHubSpotIngest(params: {
           deal,
           mappingRows,
           notesSource,
-          ownerCache,
+          ownerMap,
+          syncLogId,
         });
 
         const v = validateHubSpotIngestRow({ raw, mappingRows, hubDealId: crmId });
@@ -533,13 +551,19 @@ export async function syncHubSpotDealMetadataOnly(args: { orgId: number; dealId:
       }
     }
 
-    const ownerCache = new Map<string, string>();
+    const ownerMap = new Map<string, string>();
+    const ownersRes = await getOwners(orgId);
+    if (ownersRes.ok) {
+      for (const o of ownersRes.data) {
+        if (o.id && o.email) ownerMap.set(o.id, o.email);
+      }
+    }
     const raw = await buildRawRowForDeal({
       orgId,
       deal: dealRes.data,
       mappingRows,
       notesSource,
-      ownerCache,
+      ownerMap,
     });
     await applyMetadataUpsert({ orgId, mappingSetId, rawRow: raw });
   } catch {
