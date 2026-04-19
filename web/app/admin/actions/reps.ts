@@ -3,10 +3,11 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createRep, deleteRep, getRep, getUserById, updateRep } from "../../../lib/db";
+import { createRep, deleteRep, getRep, getUserById, syncRepsFromUsers, updateRep } from "../../../lib/db";
+import { pool } from "../../../lib/pool";
 import { requireOrgContext } from "../../../lib/auth";
 import { resolvePublicId } from "../../../lib/publicId";
-import { isAdmin } from "../../../lib/roleHelpers";
+import { isAdmin, isManager } from "../../../lib/roleHelpers";
 
 const RepUpsertSchema = z.object({
   public_id: z.string().uuid().optional(),
@@ -117,6 +118,84 @@ export async function updateRepAction(formData: FormData) {
 
   revalidatePath("/admin/reps");
   redirect(`/admin/reps`);
+}
+
+export async function relinkRepDealsForUserAction(
+  userPublicId: string
+): Promise<{ ok: true; relinked: number } | { ok: false; error: string }> {
+  const { ctx, orgId } = await requireOrgContext();
+  const pid = String(userPublicId || "").trim();
+  if (!pid) return { ok: false, error: "Missing user" };
+
+  let userId: number;
+  try {
+    userId = await resolvePublicId("users", pid);
+  } catch {
+    return { ok: false, error: "Invalid user" };
+  }
+
+  const user = await getUserById({ orgId, userId }).catch(() => null);
+  if (!user) return { ok: false, error: "User not found" };
+  if (user.role !== "REP") return { ok: false, error: "Not a rep user" };
+
+  if (ctx.kind === "user") {
+    if (isAdmin(ctx.user)) {
+      /* ok */
+    } else if (isManager(ctx.user)) {
+      if (user.manager_user_id !== ctx.user.id) return { ok: false, error: "Forbidden" };
+    } else {
+      return { ok: false, error: "Forbidden" };
+    }
+  }
+
+  const crmOwnerName = String(user.account_owner_name || "").trim() || null;
+  if (!crmOwnerName) return { ok: false, error: "Set CRM Name first" };
+
+  const loadRep = async () => {
+    const { rows } = await pool.query<{
+      id: number;
+      rep_name: string;
+      display_name: string | null;
+      crm_owner_id: string | null;
+      crm_owner_name: string | null;
+      user_id: number | null;
+      manager_rep_id: number | null;
+      role: string | null;
+      active: boolean | null;
+    }>(
+      `
+      SELECT r.id, r.rep_name, r.display_name, r.crm_owner_id, r.crm_owner_name, r.user_id, r.manager_rep_id, r.role, r.active
+        FROM reps r
+       WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1
+         AND r.user_id = $2
+       LIMIT 1
+      `,
+      [orgId, user.id]
+    );
+    return rows?.[0] ?? null;
+  };
+
+  let repRow = await loadRep();
+  if (!repRow) {
+    await syncRepsFromUsers({ organizationId: orgId });
+    repRow = await loadRep();
+  }
+  if (!repRow) return { ok: false, error: "No rep record for this user" };
+
+  const updated = await updateRep({
+    organizationId: orgId,
+    repId: repRow.id,
+    rep_name: repRow.rep_name,
+    display_name: repRow.display_name,
+    crm_owner_id: repRow.crm_owner_id,
+    crm_owner_name: crmOwnerName,
+    user_id: repRow.user_id,
+    manager_rep_id: repRow.manager_rep_id,
+    role: repRow.role,
+    active: repRow.active ?? true,
+  });
+  if (!updated) return { ok: false, error: "Update failed" };
+  return { ok: true, relinked: updated.relinked_opportunities };
 }
 
 export async function deleteRepAction(formData: FormData) {

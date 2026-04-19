@@ -54,6 +54,8 @@ export function HubspotIntegrationClient(props: {
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [layoutEditEnabled, setLayoutEditEnabled] = useState(!props.mappingsComplete);
+  const [layoutSavedFlash, setLayoutSavedFlash] = useState("");
   const [syncStatus, setSyncStatus] = useState<any>(null);
   const [writeback, setWriteback] = useState(!!props.connection?.writeback_enabled);
   const [poll, setPoll] = useState(false);
@@ -64,6 +66,22 @@ export function HubspotIntegrationClient(props: {
     setConnection(props.connection);
     setWriteback(!!props.connection?.writeback_enabled);
   }, [props.connection]);
+
+  useEffect(() => {
+    setMappingsComplete(props.mappingsComplete);
+    if (props.mappingsComplete) setLayoutEditEnabled(false);
+    else setLayoutEditEnabled(true);
+  }, [props.mappingsComplete]);
+
+  useEffect(() => {
+    setInitialSyncComplete(props.initialSyncComplete);
+  }, [props.initialSyncComplete]);
+
+  useEffect(() => {
+    if (!layoutSavedFlash) return;
+    const id = setTimeout(() => setLayoutSavedFlash(""), 3000);
+    return () => clearTimeout(id);
+  }, [layoutSavedFlash]);
 
   useEffect(() => {
     if (props.mappingsComplete && !props.initialSyncComplete && props.connection) {
@@ -164,35 +182,60 @@ export function HubspotIntegrationClient(props: {
     [properties]
   );
 
-  const saveMappings = async () => {
+  const buildMappingsPayload = (): SavedMap[] => {
+    const mappings: SavedMap[] = [];
+    for (const sf of Object.keys(SF_LABELS)) {
+      const r = rows[sf];
+      mappings.push({
+        sf_field: sf,
+        hubspot_property: r?.hubspot_property || null,
+        confidence: r?.confidence || "none",
+      });
+    }
+    mappings.push({
+      sf_field: "notes_source",
+      hubspot_property: JSON.stringify({
+        engagements: notesEngagements,
+        ...(notesCustomProp.trim() ? { custom_property: notesCustomProp.trim() } : {}),
+      }),
+      confidence: "high",
+    });
+    return mappings;
+  };
+
+  const persistMappings = async (triggerSync: boolean) => {
+    const res = await fetch("/api/integrations/hubspot/mappings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mappings: buildMappingsPayload(), triggerSync }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) throw new Error(j.error || "Save failed");
+    return j as { ok: boolean; syncQueued?: boolean };
+  };
+
+  const saveLayout = async () => {
     setBusy(true);
     setErr("");
     try {
-      const mappings: SavedMap[] = [];
-      for (const sf of Object.keys(SF_LABELS)) {
-        const r = rows[sf];
-        mappings.push({
-          sf_field: sf,
-          hubspot_property: r?.hubspot_property || null,
-          confidence: r?.confidence || "none",
-        });
-      }
-      mappings.push({
-        sf_field: "notes_source",
-        hubspot_property: JSON.stringify({
-          engagements: notesEngagements,
-          ...(notesCustomProp.trim() ? { custom_property: notesCustomProp.trim() } : {}),
-        }),
-        confidence: "high",
-      });
-      const res = await fetch("/api/integrations/hubspot/mappings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mappings }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j.ok) throw new Error(j.error || "Save failed");
+      await persistMappings(false);
       setMappingsComplete(true);
+      setLayoutEditEnabled(false);
+      setLayoutSavedFlash(String(Date.now()));
+    } catch (e: any) {
+      setErr(e?.message || String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveAndSyncNow = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      const j = await persistMappings(true);
+      setMappingsComplete(true);
+      setLayoutEditEnabled(false);
       if (j.syncQueued) {
         setInitialSyncComplete(false);
         setPoll(true);
@@ -203,6 +246,8 @@ export function HubspotIntegrationClient(props: {
       setBusy(false);
     }
   };
+
+  const tableLocked = mappingsComplete && !layoutEditEnabled;
 
   const pollSync = useCallback(async () => {
     try {
@@ -235,6 +280,7 @@ export function HubspotIntegrationClient(props: {
       if (!res.ok || !j.ok) throw new Error(j.error || "Disconnect failed");
       setConnection(null);
       setMappingsComplete(false);
+      setLayoutEditEnabled(true);
       setInitialSyncComplete(false);
       setRows({});
     } catch (e: any) {
@@ -374,6 +420,19 @@ export function HubspotIntegrationClient(props: {
       {step1Done ? (
         <section className="mt-6 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Step 2 — Map your fields</h2>
+          {mappingsComplete && !layoutEditEnabled ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium text-emerald-800">✓ Using saved layout</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setLayoutEditEnabled(true)}
+                className="rounded-md border border-[color:var(--sf-border)] px-2 py-1 text-xs hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-50"
+              >
+                Edit
+              </button>
+            </div>
+          ) : null}
           <div className="mt-4 overflow-auto rounded-lg border border-[color:var(--sf-border)]">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
@@ -406,7 +465,8 @@ export function HubspotIntegrationClient(props: {
                       </td>
                       <td className="px-3 py-2">
                         <select
-                          className="w-full max-w-xs rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm"
+                          disabled={busy || tableLocked}
+                          className="w-full max-w-xs rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm disabled:opacity-50"
                           value={r.hubspot_property || ""}
                           onChange={(e) => {
                             const v = e.target.value || null;
@@ -438,7 +498,13 @@ export function HubspotIntegrationClient(props: {
           <div className="mt-6 space-y-3">
             <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Notes source</h3>
             <label className="flex items-start gap-2 text-sm text-[color:var(--sf-text-primary)]">
-              <input type="checkbox" className="mt-0.5" checked={notesEngagements} onChange={(e) => setNotesEngagements(e.target.checked)} />
+              <input
+                type="checkbox"
+                className="mt-0.5 disabled:opacity-50"
+                disabled={busy || tableLocked}
+                checked={notesEngagements}
+                onChange={(e) => setNotesEngagements(e.target.checked)}
+              />
               <span>
                 <span className="block">Pull from HubSpot Notes/Engagements</span>
                 {notesPreviewLoading ? (
@@ -461,7 +527,8 @@ export function HubspotIntegrationClient(props: {
             <div>
               <label className="text-xs font-medium text-[color:var(--sf-text-secondary)]">Also pull from custom text property (optional)</label>
               <select
-                className="mt-1 w-full max-w-md rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm"
+                disabled={busy || tableLocked}
+                className="mt-1 w-full max-w-md rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm disabled:opacity-50"
                 value={notesCustomProp}
                 onChange={(e) => setNotesCustomProp(e.target.value)}
               >
@@ -477,14 +544,27 @@ export function HubspotIntegrationClient(props: {
               Notes are the primary input for AI scoring. Without notes, deals will sync and appear in your pipeline but will not receive an initial AI score.
               We recommend mapping at least one notes source.
             </p>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={saveMappings}
-              className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-4 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-50"
-            >
-              Save &amp; Start Sync
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={busy || tableLocked}
+                onClick={saveLayout}
+                className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-4 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-50"
+              >
+                Save Layout
+              </button>
+              {layoutSavedFlash ? <span className="text-sm font-medium text-emerald-800">Layout saved ✓</span> : null}
+              {mappingsComplete && !initialSyncComplete ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={saveAndSyncNow}
+                  className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-2 text-sm font-medium text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)] disabled:opacity-50"
+                >
+                  Save &amp; Sync Now
+                </button>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : null}

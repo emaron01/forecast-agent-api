@@ -22,6 +22,7 @@ import {
   updateUserAction,
 } from "../actions/users";
 import { EditUserResetEmailButton } from "./EditUserResetEmailButton";
+import { RelinkDealsButton } from "./RelinkDealsButton";
 import { RoleSelect } from "../../../components/admin/RoleSelect";
 import {
   HIERARCHY,
@@ -407,6 +408,9 @@ export default async function UsersPage({
                       >
                         Edit
                       </Link>
+                      {u.role === "REP" ? (
+                        <RelinkDealsButton userPublicId={String(u.public_id)} crmOwnerName={u.account_owner_name} />
+                      ) : null}
                       {isAdmin ? (
                         <form action={generateResetLinkAction}>
                           <input type="hidden" name="public_id" value={String(u.public_id)} />
