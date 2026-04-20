@@ -33,9 +33,14 @@ export function ChannelTabPanelClient(props: {
     showCei = true,
   } = props;
 
+  const isChannelViewerRole = ["CHANNEL_EXECUTIVE", "CHANNEL_DIRECTOR", "CHANNEL_REP"].includes(String(viewerRole || "").trim());
+  const isChannelDashboard = String(revenueTabProps.basePath || "").trim() === "/dashboard/channel";
+  // Channel dashboard already renders a full HERO above tabs; avoid redundant hero panel inside Channel tab for channel roles.
+  const showEmbeddedChannelHeroPanel = !(isChannelDashboard && isChannelViewerRole);
+
   return (
     <div className="-mx-4 -mt-4 space-y-5">
-      {showChannelContribution && channelContributionHero ? (
+      {showEmbeddedChannelHeroPanel && showChannelContribution && channelContributionHero ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
           <ChannelPartnersTabHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} viewerRole={viewerRole} />
           {(channelContributionRows?.length ?? 0) > 0 ? (
