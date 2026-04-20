@@ -55,6 +55,7 @@ type StageSnap = {
   won_count: number;
   lost_amount: number;
   lost_count: number;
+  lost_avg_health_score: number | null;
 };
 
 const emptyStage: StageSnap = {
@@ -74,6 +75,7 @@ const emptyStage: StageSnap = {
   won_count: 0,
   lost_amount: 0,
   lost_count: 0,
+  lost_avg_health_score: null,
 };
 
 function healthPctFrom30(score: unknown): number | null {
@@ -349,7 +351,8 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
       )
       .then((r) => r.rows?.[0] || empty);
     return row;
-  } catch {
+  } catch (e) {
+    console.error("[loadPartnerVerdictAgg] error:", e);
     return empty;
   }
 }
@@ -452,7 +455,8 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
         COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
         COALESCE(SUM(CASE WHEN is_won THEN 1 ELSE 0 END), 0)::int AS won_count,
         COALESCE(SUM(CASE WHEN is_lost THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
-        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count
+        COALESCE(SUM(CASE WHEN is_lost THEN 1 ELSE 0 END), 0)::int AS lost_count,
+        AVG(CASE WHEN is_lost THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS lost_avg_health_score
       FROM classified
       `,
       [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
@@ -789,7 +793,10 @@ export async function loadChannelPartnerHeroProps(args: {
       won_count: Number(curStage?.won_count ?? 0) || 0,
       lost_amount: Number(curStage?.lost_amount ?? 0) || 0,
       lost_count: Number(curStage?.lost_count ?? 0) || 0,
-      lost_avg_health_score: null,
+      lost_avg_health_score:
+        curStage?.lost_avg_health_score == null || !Number.isFinite(Number(curStage.lost_avg_health_score))
+          ? null
+          : Number(curStage.lost_avg_health_score),
       weighted_forecast: weightedCrm,
     },
     aiForecast: weightedAi,
