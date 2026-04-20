@@ -379,11 +379,11 @@ async function loadChannelRevenue(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
           AND ${partnerScopeSql("o", 4)}
@@ -449,11 +449,11 @@ async function loadTerritoryClosedWon(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
       ),
@@ -543,11 +543,11 @@ async function loadPartnerSummary(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
           AND ${partnerScopeSql("o", 4)}
@@ -644,11 +644,11 @@ async function loadTopPartnerDeals(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
           AND ${partnerScopeSql("o", 4)}
@@ -851,11 +851,11 @@ async function loadChannelRepRows(args: {
             LEFT JOIN org_stage_mappings stm
               ON stm.org_id = o.org_id
              AND stm.field = 'stage'
-             AND stm.stage_value = o.sales_stage
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
             LEFT JOIN org_stage_mappings fcm
               ON fcm.org_id = o.org_id
              AND fcm.field = 'forecast_category'
-             AND fcm.stage_value = o.forecast_stage
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1::bigint
               AND o.rep_id = ANY($3::bigint[])
               AND ${partnerScopeSql("o", 4)}
@@ -1021,11 +1021,11 @@ export async function loadChannelRepWonDeals(args: {
             LEFT JOIN org_stage_mappings stm
               ON stm.org_id = o.org_id
              AND stm.field = 'stage'
-             AND stm.stage_value = o.sales_stage
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
             LEFT JOIN org_stage_mappings fcm
               ON fcm.org_id = o.org_id
              AND fcm.field = 'forecast_category'
-             AND fcm.stage_value = o.forecast_stage
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1::bigint
               AND o.rep_id = ANY($3::bigint[])
               AND ${partnerScopeSql("o", 4)}
@@ -1247,11 +1247,11 @@ export async function loadChannelRepFyQuarterRows(args: {
             LEFT JOIN org_stage_mappings stm
               ON stm.org_id = o.org_id
              AND stm.field = 'stage'
-             AND stm.stage_value = o.sales_stage
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
             LEFT JOIN org_stage_mappings fcm
               ON fcm.org_id = o.org_id
              AND fcm.field = 'forecast_category'
-             AND fcm.stage_value = o.forecast_stage
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1::bigint
               AND o.rep_id = ANY($3::bigint[])
               AND ${partnerScopeSql("o", 4)}
@@ -1362,11 +1362,11 @@ async function loadProductsViaPartner(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
           AND ${partnerScopeSql("o", 4)}
@@ -1432,11 +1432,11 @@ async function loadPipelineByQuarter(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND o.rep_id = ANY($3::bigint[])
           AND ${partnerScopeSql("o", 4)}
