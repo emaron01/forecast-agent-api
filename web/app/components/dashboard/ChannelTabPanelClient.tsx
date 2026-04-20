@@ -37,7 +37,7 @@ export function ChannelTabPanelClient(props: {
     <div className="-mx-4 -mt-4 space-y-5">
       {showChannelContribution && channelContributionHero ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <ChannelPartnersTabHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} />
+          <ChannelPartnersTabHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} viewerRole={viewerRole} />
           {(channelContributionRows?.length ?? 0) > 0 ? (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-sm">

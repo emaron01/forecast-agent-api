@@ -122,10 +122,10 @@ function gapMoneyColorClass(v: number) {
 /**
  * Partner-scoped metrics block for the **Channel tab / Channel Partners** panel (`ChannelTabPanelClient`).
  * Not the primary page hero: that is `ExecutiveGapInsightsClient` `heroOnly` on `/dashboard/channel` or `/dashboard/executive`.
- * Data: {@link loadChannelPartnerHeroProps}. Executive Channel tab uses a stripped layout via `basePath === "/dashboard/executive"`.
+ * Data: {@link loadChannelPartnerHeroProps}. Executive Channel tab uses a stripped layout for sales roles (0–3).
  */
-export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroProps; basePath: string }) {
-  const { hero, basePath } = props;
+export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroProps; basePath: string; viewerRole?: string | null }) {
+  const { hero, basePath, viewerRole } = props;
   const kpis = hero.quarterKpis;
   const wonAmount =
     kpis != null
@@ -236,7 +236,8 @@ export function ChannelPartnersTabHeroPanel(props: { hero: ChannelPartnerHeroPro
           : "text-red-400";
 
   /** Executive Dashboard → Channel tab only: strip Outlook column + Quota / Gap / Landing Zone cards (not the main page hero). */
-  const isExecChannelTabHero = String(basePath || "").trim() === "/dashboard/executive";
+  const isChannelViewerRole = ["CHANNEL_EXECUTIVE", "CHANNEL_DIRECTOR", "CHANNEL_REP"].includes(String(viewerRole || "").trim());
+  const isExecChannelTabHero = String(basePath || "").trim() === "/dashboard/executive" && !isChannelViewerRole;
 
   const forecastBlockInner = (
     <>
