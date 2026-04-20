@@ -12,6 +12,7 @@ import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { isAdmin, isSalesLeader } from "../../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../../lib/crmBucketCaseSql";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -100,6 +101,26 @@ async function listTopDeals(args: {
       WHERE org_id = $1::bigint
         AND id = $2::bigint
       LIMIT 1
+    ),
+    bucketed AS (
+      SELECT
+        o.*,
+        (${crmBucketCaseSql("o")}) AS crm_bucket
+      FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.period_start
+        AND o.close_date <= qp.period_end
+        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
     )
     SELECT
       o.public_id::text AS opportunity_public_id,
@@ -113,22 +134,11 @@ async function listTopDeals(args: {
       o.close_date::date::text AS close_date,
       o.baseline_health_score::float8 AS baseline_health_score,
       o.health_score::float8 AS health_score
-    FROM opportunities o
-    JOIN qp ON TRUE
+    FROM bucketed o
     LEFT JOIN reps r
       ON r.organization_id = $1
      AND r.id = o.rep_id
-    WHERE o.org_id = $1
-      AND o.close_date IS NOT NULL
-      AND o.close_date >= qp.period_start
-      AND o.close_date <= qp.period_end
-      AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
-      AND (
-        CASE
-          WHEN $5::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          ELSE ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-        END
-      )
+    WHERE (CASE WHEN $5::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $6
     `,

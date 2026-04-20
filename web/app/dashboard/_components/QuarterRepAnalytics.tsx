@@ -2,6 +2,7 @@ import "server-only";
 
 import { pool } from "../../../lib/pool";
 import type { AuthUser } from "../../../lib/auth";
+import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -133,15 +134,7 @@ export async function QuarterRepAnalytics(props: {
           deals AS (
             SELECT
               COALESCE(o.amount, 0) AS amount,
-              lower(
-                regexp_replace(
-                  -- Forecast reporting standard: forecast_stage drives all classification.
-                  COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
-                  '[^a-zA-Z]+',
-                  ' ',
-                  'g'
-                )
-              ) AS fs,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               CASE
                 WHEN o.close_date IS NULL THEN NULL
                 WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -150,6 +143,14 @@ export async function QuarterRepAnalytics(props: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1
               AND $3::bigint IS NOT NULL
               AND o.rep_id = $3::bigint
@@ -163,8 +164,8 @@ export async function QuarterRepAnalytics(props: {
                AND d.close_d <= qp.period_end
           )
           SELECT
-            COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN amount ELSE 0 END), 0)::float8 AS won_amount,
-            COALESCE(SUM(CASE WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 1 ELSE 0 END), 0)::int AS won_count
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count
           FROM deals_in_qtr
           `,
           [props.orgId, qp.id, repId]

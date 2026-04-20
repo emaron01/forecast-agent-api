@@ -4,6 +4,7 @@ import { pool } from "../../../../lib/pool";
 import { getAuth } from "../../../../lib/auth";
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { isAdmin, isSalesLeader } from "../../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -88,10 +89,21 @@ export async function GET(req: Request) {
         deals AS (
           SELECT
             COALESCE(o.amount, 0)::float8 AS amount,
+            o.forecast_stage,
+            o.sales_stage,
+            (${crmBucketCaseSql("o")}) AS crm_bucket,
             lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
             o.close_date::date AS close_d,
             o.rep_id
           FROM opportunities o
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = o.org_id
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = o.org_id
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
           WHERE o.org_id = $1
             AND (
               NOT $4::boolean
@@ -109,17 +121,15 @@ export async function GET(req: Request) {
         open_deals AS (
           SELECT *
             FROM deals_in_qtr d
-           WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-             AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-             AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+           WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
         )
         SELECT
-          COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-          COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-          COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-          COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-          COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-          COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+          COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
           COALESCE(SUM(amount), 0)::float8 AS total_amount,
           COUNT(*)::int AS total_count
         FROM open_deals
@@ -158,8 +168,17 @@ export async function GET(req: Request) {
           o.rep_name,
           o.sales_stage,
           o.forecast_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1
       ),
       in_qtr AS (
@@ -173,9 +192,7 @@ export async function GET(req: Request) {
       open_in_qtr AS (
         SELECT *
           FROM in_qtr
-         WHERE NOT ((' ' || fs || ' ') LIKE '% won %')
-           AND NOT ((' ' || fs || ' ') LIKE '% lost %')
-           AND NOT ((' ' || fs || ' ') LIKE '% closed %')
+         WHERE crm_bucket IN ('commit', 'best_case', 'pipeline')
       ),
       scoped_open AS (
         SELECT *
@@ -218,8 +235,17 @@ export async function GET(req: Request) {
           rep_name,
           sales_stage,
           forecast_stage,
+          (${crmBucketCaseSql("opportunities")}) AS crm_bucket,
           lower(regexp_replace(COALESCE(NULLIF(btrim(forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
         FROM opportunities
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = opportunities.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(opportunities.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = opportunities.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(opportunities.forecast_stage::text, '')))
         WHERE org_id = $1
       ),
       open_in_qtr AS (
@@ -229,9 +255,7 @@ export async function GET(req: Request) {
          WHERE b.close_date IS NOT NULL
            AND b.close_date >= qp.period_start
            AND b.close_date <= qp.period_end
-           AND NOT ((' ' || b.fs || ' ') LIKE '% won %')
-           AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-           AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
+           AND b.crm_bucket IN ('commit', 'best_case', 'pipeline')
       ),
       scoped AS (
         SELECT *
@@ -264,10 +288,20 @@ export async function GET(req: Request) {
       base AS (
         SELECT
           COALESCE(NULLIF(btrim(forecast_stage), ''), '(blank)') AS forecast_stage,
+          sales_stage,
+          (${crmBucketCaseSql("opportunities")}) AS crm_bucket,
           lower(regexp_replace(COALESCE(NULLIF(btrim(forecast_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           close_date::date AS close_date,
           rep_id
         FROM opportunities
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = opportunities.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(opportunities.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = opportunities.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(opportunities.forecast_stage::text, '')))
         WHERE org_id = $1
       ),
       open_in_qtr AS (
@@ -277,9 +311,7 @@ export async function GET(req: Request) {
          WHERE b.close_date IS NOT NULL
            AND b.close_date >= qp.period_start
            AND b.close_date <= qp.period_end
-           AND NOT ((' ' || b.fs || ' ') LIKE '% won %')
-           AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-           AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
+           AND b.crm_bucket IN ('commit', 'best_case', 'pipeline')
       ),
       scoped AS (
         SELECT *

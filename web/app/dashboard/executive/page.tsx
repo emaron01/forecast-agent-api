@@ -1388,6 +1388,25 @@ export default async function ExecutiveDashboardPage({
     const useRepFilter = !!(args.repIds && args.repIds.length);
     const { rows } = await pool.query<TopDealRow>(
       `
+      WITH bucketed AS (
+        SELECT
+          o.*,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        WHERE o.org_id = $1
+          AND (NOT $6::boolean OR o.rep_id = ANY($5::bigint[]))
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= COALESCE($3::date, o.close_date)
+          AND o.close_date <= COALESCE($4::date, o.close_date)
+      )
       SELECT
         o.public_id::text AS opportunity_public_id,
         COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '') AS rep_name,
@@ -1399,22 +1418,9 @@ export default async function ExecutiveDashboardPage({
         o.close_date::date::text AS close_date,
         o.baseline_health_score::float8 AS baseline_health_score,
         o.health_score::float8 AS health_score
-      FROM opportunities o
+      FROM bucketed o
       LEFT JOIN reps r ON r.id = o.rep_id
-      WHERE o.org_id = $1
-        AND (NOT $6::boolean OR o.rep_id = ANY($5::bigint[]))
-        AND o.close_date IS NOT NULL
-        AND o.close_date >= COALESCE($3::date, o.close_date)
-        AND o.close_date <= COALESCE($4::date, o.close_date)
-        AND (
-          CASE
-            WHEN $2::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-            ELSE (
-              ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-              OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-            )
-          END
-        )
+      WHERE (CASE WHEN $2::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
       ORDER BY amount DESC NULLS LAST, o.id DESC
       LIMIT $7
       `,
@@ -1446,6 +1452,28 @@ export default async function ExecutiveDashboardPage({
       WHERE org_id = $1::bigint
         AND id = $2::bigint
       LIMIT 1
+    ),
+    bucketed AS (
+      SELECT
+        o.*,
+        (${crmBucketCaseSql("o")}) AS crm_bucket
+      FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.range_start
+        AND o.close_date <= qp.range_end
     )
     SELECT
       o.public_id::text AS opportunity_public_id,
@@ -1458,24 +1486,8 @@ export default async function ExecutiveDashboardPage({
       o.close_date::date::text AS close_date,
       o.baseline_health_score::float8 AS baseline_health_score,
       o.health_score::float8 AS health_score
-    FROM opportunities o
-    JOIN qp ON TRUE
-    WHERE o.org_id = $1
-      AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
-      AND o.partner_name IS NOT NULL
-      AND btrim(o.partner_name) <> ''
-      AND o.close_date IS NOT NULL
-      AND o.close_date >= qp.range_start
-      AND o.close_date <= qp.range_end
-      AND (
-        CASE
-          WHEN $3::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          ELSE (
-            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-          )
-        END
-      )
+    FROM bucketed o
+    WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $4
     `,

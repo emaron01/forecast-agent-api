@@ -19,6 +19,7 @@ import {
   isExecManager,
   isManager,
 } from "../../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../../lib/crmBucketCaseSql";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -562,6 +563,7 @@ export default async function AnalyticsQuotasManagerPage({
                     'g'
                   )
                 ) AS fs,
+                (${crmBucketCaseSql("o")}) AS crm_bucket,
                 CASE
                   WHEN o.close_date IS NULL THEN NULL
                   WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -570,6 +572,14 @@ export default async function AnalyticsQuotasManagerPage({
                   ELSE NULL
                 END AS close_d
               FROM opportunities o
+              LEFT JOIN org_stage_mappings stm
+                ON stm.org_id = o.org_id
+               AND stm.field = 'stage'
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+              LEFT JOIN org_stage_mappings fcm
+                ON fcm.org_id = o.org_id
+               AND fcm.field = 'forecast_category'
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
               WHERE o.org_id = $1
                 AND o.rep_id = ANY($3::bigint[])
             )
@@ -579,7 +589,7 @@ export default async function AnalyticsQuotasManagerPage({
               COALESCE(SUM(d.amount), 0)::float8 AS won_amount
             FROM deals d
             JOIN periods p ON d.close_d IS NOT NULL AND d.close_d >= p.period_start AND d.close_d <= p.period_end
-            WHERE ((' ' || d.fs || ' ') LIKE '% won %')
+            WHERE d.crm_bucket = 'won'
             GROUP BY d.rep_id, p.id
             `,
             [ctx.user.org_id, quarterIds, closedWonRepIds]

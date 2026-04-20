@@ -5,6 +5,8 @@ import { pool } from "../../../../lib/pool";
 
 export const runtime = "nodejs";
 
+type OrgStageMapping = { stage_value: string; bucket: string };
+
 function jsonError(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
@@ -58,7 +60,33 @@ function cleanText(v: any) {
   return s ? s : null;
 }
 
-function stageBucketFromStages(forecastStage: any, salesStage: any): "commit" | "best_case" | "pipeline" | null {
+function stageBucketFromStages(
+  forecastStage: any,
+  salesStage: any,
+  orgStageMappings?: OrgStageMapping[]
+): "commit" | "best_case" | "pipeline" | null {
+  if (orgStageMappings?.length) {
+    const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const normBucket = (v: unknown) => norm(v).replace(/\s+/g, "_");
+
+    const ss = norm(salesStage);
+    const fs = norm(forecastStage);
+
+    const salesMatch = orgStageMappings.find((m) => norm(m.stage_value) === ss);
+    if (salesMatch) {
+      const b = normBucket(salesMatch.bucket);
+      if (b === "commit" || b === "best_case" || b === "pipeline") return b;
+      return null;
+    }
+
+    const forecastMatch = orgStageMappings.find((m) => norm(m.stage_value) === fs);
+    if (forecastMatch) {
+      const b = normBucket(forecastMatch.bucket);
+      if (b === "commit" || b === "best_case" || b === "pipeline") return b;
+      return null;
+    }
+  }
+
   const fs = String(forecastStage || "").trim();
   const ss = String(salesStage || "").trim();
   const combined = `${fs} ${ss}`.trim().toLowerCase();
@@ -231,7 +259,12 @@ export async function GET(req: Request) {
     const row = rows?.[0] ?? null;
     if (!row) return jsonError(404, "Not found");
 
-    const bucket = stageBucketFromStages(row.forecast_stage, row.sales_stage);
+    const orgStageMappings: OrgStageMapping[] = await pool
+      .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [auth.user.org_id])
+      .then((r) => (r.rows || []) as any[])
+      .catch(() => []);
+
+    const bucket = stageBucketFromStages(row.forecast_stage, row.sales_stage, orgStageMappings);
 
     const riskFlags: Array<{ key: RiskCategoryKey; label: string; tip: string | null }> = [];
     const push = (key: RiskCategoryKey, displayName: string, score: number | null, tip: string | null) => {

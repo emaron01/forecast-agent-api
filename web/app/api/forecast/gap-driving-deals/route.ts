@@ -9,6 +9,7 @@ import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { isAdmin, isChannelRole as authUserIsChannelRole, isSalesRep } from "../../../../lib/roleHelpers";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
+import { crmBucketCaseSql } from "../../../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -720,6 +721,8 @@ export async function GET(req: Request) {
           matched_qp.fiscal_year AS close_fiscal_year,
           matched_qp.fiscal_quarter AS close_fiscal_quarter,
           o.forecast_stage,
+          o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket_raw,
           o.health_score,
           o.risk_summary,
           o.next_steps,
@@ -740,6 +743,14 @@ export async function GET(req: Request) {
             )
           ) AS fs
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         JOIN LATERAL (
           SELECT qp.id, qp.period_start, qp.period_end, qp.period_name, qp.fiscal_year, qp.fiscal_quarter
           FROM qp
@@ -782,27 +793,9 @@ export async function GET(req: Request) {
       classified AS (
         SELECT
           b.*,
-          (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-            AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-            AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-            AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-          ) AS is_open,
+          (b.crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) AS is_open,
           CASE
-            WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-            ) AND b.fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-            ) AND b.fs LIKE '%best%' THEN 'best_case'
-            WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-            ) THEN 'pipeline'
+            WHEN (b.crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) THEN b.crm_bucket_raw
             ELSE NULL
           END AS crm_bucket
         FROM base b
@@ -968,6 +961,8 @@ export async function GET(req: Request) {
             matched_qp.fiscal_year AS close_fiscal_year,
             matched_qp.fiscal_quarter AS close_fiscal_quarter,
             o.forecast_stage,
+            o.sales_stage,
+            (${crmBucketCaseSql("o")}) AS crm_bucket_raw,
             o.health_score,
             o.risk_summary,
             o.next_steps,
@@ -988,6 +983,14 @@ export async function GET(req: Request) {
               )
             ) AS fs
           FROM opportunities o
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = o.org_id
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = o.org_id
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
           JOIN LATERAL (
             SELECT qp.id, qp.period_start, qp.period_end, qp.period_name, qp.fiscal_year, qp.fiscal_quarter
             FROM qp
@@ -1030,27 +1033,9 @@ export async function GET(req: Request) {
         classified AS (
           SELECT
             b.*,
-            (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-              AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-            ) AS is_open,
+            (b.crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) AS is_open,
             CASE
-              WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-              ) AND b.fs LIKE '%commit%' THEN 'commit'
-              WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-              ) AND b.fs LIKE '%best%' THEN 'best_case'
-              WHEN (NOT ((' ' || b.fs || ' ') LIKE '% won %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% lost %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% loss %')
-                AND NOT ((' ' || b.fs || ' ') LIKE '% closed %')
-              ) THEN 'pipeline'
+              WHEN (b.crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) THEN b.crm_bucket_raw
               ELSE NULL
             END AS crm_bucket
           FROM base b
@@ -1525,6 +1510,9 @@ export async function GET(req: Request) {
             deals AS (
               SELECT
                 o.health_score,
+                o.forecast_stage,
+                o.sales_stage,
+                (${crmBucketCaseSql("o")}) AS crm_bucket_raw,
                 lower(
                   regexp_replace(
                     COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1534,6 +1522,14 @@ export async function GET(req: Request) {
                   )
                 ) AS fs
               FROM opportunities o
+              LEFT JOIN org_stage_mappings stm
+                ON stm.org_id = o.org_id
+               AND stm.field = 'stage'
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+              LEFT JOIN org_stage_mappings fcm
+                ON fcm.org_id = o.org_id
+               AND fcm.field = 'forecast_category'
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
               JOIN qp ON TRUE
               WHERE o.org_id = $1::bigint
                 AND o.rep_id = $3::bigint
@@ -1559,27 +1555,9 @@ export async function GET(req: Request) {
             classified AS (
               SELECT
                 *,
-                (NOT ((' ' || fs || ' ') LIKE '% won %')
-                  AND NOT ((' ' || fs || ' ') LIKE '% lost %')
-                  AND NOT ((' ' || fs || ' ') LIKE '% loss %')
-                  AND NOT ((' ' || fs || ' ') LIKE '% closed %')
-                ) AS is_open,
+                (crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) AS is_open,
                 CASE
-                  WHEN (NOT ((' ' || fs || ' ') LIKE '% won %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% lost %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% loss %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% closed %')
-                  ) AND fs LIKE '%commit%' THEN 'commit'
-                  WHEN (NOT ((' ' || fs || ' ') LIKE '% won %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% lost %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% loss %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% closed %')
-                  ) AND fs LIKE '%best%' THEN 'best_case'
-                  WHEN (NOT ((' ' || fs || ' ') LIKE '% won %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% lost %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% loss %')
-                    AND NOT ((' ' || fs || ' ') LIKE '% closed %')
-                  ) THEN 'pipeline'
+                  WHEN (crm_bucket_raw IN ('commit', 'best_case', 'pipeline')) THEN crm_bucket_raw
                   ELSE NULL
                 END AS crm_bucket
               FROM deals

@@ -260,6 +260,9 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
         o.partner_name,
         o.create_date,
         o.close_date,
+        o.forecast_stage,
+        o.sales_stage,
+        (${crmBucketCaseSql("o")}) AS crm_bucket,
         lower(
           regexp_replace(
             COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -277,21 +280,22 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
        AND o.close_date >= p.period_start
        AND o.close_date <= p.period_end
        ${scopeSql}
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
     ),
     classified AS (
       SELECT
         *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
-        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active,
-        CASE
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%commit%' THEN 'commit'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%best%' THEN 'best'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) THEN 'pipeline'
-          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN ((' ' || fs || ' ') LIKE '% lost %') THEN 'lost'
-          ELSE 'other'
-        END AS bucket
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+        crm_bucket AS bucket
       FROM base
     )
     SELECT
@@ -304,7 +308,7 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
       COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
       COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS active_amount,
       COALESCE(SUM(CASE WHEN bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-      COALESCE(SUM(CASE WHEN bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
       COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) THEN amount ELSE 0 END), 0)::float8 AS closed_amount,

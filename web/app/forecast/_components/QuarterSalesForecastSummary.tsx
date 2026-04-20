@@ -7,6 +7,7 @@ import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getForecastStageProbabilities } from "../../../lib/forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "../../../lib/forecastSummary";
 import { HIERARCHY, isChannelRep, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 import { ForecastPeriodFiltersClient } from "./ForecastPeriodFiltersClient";
 import { GapDrivingDealsClient } from "../../analytics/meddpicc-tb/gap-driving-deals/ui/GapDrivingDealsClient";
 import { ExportQuarterlySalesForecastExcelButton, type QuarterlySalesForecastExportData } from "./ExportQuarterlySalesForecastExcelButton";
@@ -357,6 +358,9 @@ export async function QuarterSalesForecastSummary(props: {
               o.rep_id,
               o.rep_name,
               o.health_score,
+              o.forecast_stage,
+              o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               -- Forecast reporting standard: forecast_stage drives all classification.
               lower(
                 regexp_replace(
@@ -376,6 +380,14 @@ export async function QuarterSalesForecastSummary(props: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1
             ${dealsWhereSql}
           ),
@@ -396,100 +408,19 @@ export async function QuarterSalesForecastSummary(props: {
               NULLIF(btrim(d.rep_name), ''),
               '(Unknown rep)'
             ) AS rep_name,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%' THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS commit_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%' THEN 1
-              ELSE 0
-            END), 0)::int AS commit_count,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%commit%' THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS commit_health_score,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%best%' THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS best_case_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%best%' THEN 1
-              ELSE 0
-            END), 0)::int AS best_case_count,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%best%' THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS best_case_health_score,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%' THEN 0
-              WHEN d.fs LIKE '%best%' THEN 0
-              ELSE d.amount
-            END), 0)::float8 AS pipeline_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%' THEN 0
-              WHEN d.fs LIKE '%best%' THEN 0
-              ELSE 1
-            END), 0)::int AS pipeline_count,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              WHEN d.fs LIKE '%commit%' THEN NULL
-              WHEN d.fs LIKE '%best%' THEN NULL
-              ELSE NULLIF(d.health_score, 0)
-            END)::float8 AS pipeline_health_score,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% closed %')
-              THEN NULL
-              ELSE NULLIF(d.health_score, 0)
-            END)::float8 AS total_pipeline_health_score,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS won_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
-              ELSE 0
-            END), 0)::int AS won_count,
-            AVG(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN NULLIF(d.health_score, 0)
-              ELSE NULL
-            END)::float8 AS won_health_score
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'commit' THEN d.amount ELSE 0 END), 0)::float8 AS commit_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+            AVG(CASE WHEN d.crm_bucket = 'commit' THEN NULLIF(d.health_score, 0) ELSE NULL END)::float8 AS commit_health_score,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'best_case' THEN d.amount ELSE 0 END), 0)::float8 AS best_case_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+            AVG(CASE WHEN d.crm_bucket = 'best_case' THEN NULLIF(d.health_score, 0) ELSE NULL END)::float8 AS best_case_health_score,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'pipeline' THEN d.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+            AVG(CASE WHEN d.crm_bucket = 'pipeline' THEN NULLIF(d.health_score, 0) ELSE NULL END)::float8 AS pipeline_health_score,
+            AVG(CASE WHEN d.crm_bucket IN ('commit','best_case','pipeline') THEN NULLIF(d.health_score, 0) ELSE NULL END)::float8 AS total_pipeline_health_score,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'won' THEN d.amount ELSE 0 END), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+            AVG(CASE WHEN d.crm_bucket = 'won' THEN NULLIF(d.health_score, 0) ELSE NULL END)::float8 AS won_health_score
           FROM deals_in_qtr d
           LEFT JOIN reps r
             ON r.id = d.rep_id
@@ -527,6 +458,9 @@ export async function QuarterSalesForecastSummary(props: {
               COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
               COALESCE(o.amount, 0) AS amount,
               o.health_score,
+              o.forecast_stage,
+              o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               lower(
                 regexp_replace(
             COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -543,6 +477,14 @@ export async function QuarterSalesForecastSummary(props: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1
             ${dealsWhereSql}
           ),
@@ -557,7 +499,7 @@ export async function QuarterSalesForecastSummary(props: {
           won_deals AS (
             SELECT *
               FROM deals_in_qtr
-             WHERE ((' ' || fs || ' ') LIKE '% won %')
+             WHERE crm_bucket = 'won'
           )
           SELECT
             product,
@@ -594,6 +536,9 @@ export async function QuarterSalesForecastSummary(props: {
               o.health_score,
               o.rep_id,
               o.rep_name,
+              o.forecast_stage,
+              o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               lower(
                 regexp_replace(
                   COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -610,6 +555,14 @@ export async function QuarterSalesForecastSummary(props: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1
             ${dealsWhereSql}
           ),
@@ -624,7 +577,7 @@ export async function QuarterSalesForecastSummary(props: {
           won_deals AS (
             SELECT *
               FROM deals_in_qtr
-             WHERE ((' ' || fs || ' ') LIKE '% won %')
+             WHERE crm_bucket = 'won'
           )
           SELECT
             COALESCE(
@@ -713,6 +666,9 @@ export async function QuarterSalesForecastSummary(props: {
                 SELECT
                   COALESCE(o.amount, 0) AS amount,
                   o.health_score,
+                  o.forecast_stage,
+                  o.sales_stage,
+                  (${crmBucketCaseSql("o")}) AS crm_bucket,
                   lower(
                     regexp_replace(
                       COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -729,6 +685,14 @@ export async function QuarterSalesForecastSummary(props: {
                     ELSE NULL
                   END AS close_d
                 FROM opportunities o
+                LEFT JOIN org_stage_mappings stm
+                  ON stm.org_id = o.org_id
+                 AND stm.field = 'stage'
+                 AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+                LEFT JOIN org_stage_mappings fcm
+                  ON fcm.org_id = o.org_id
+                 AND fcm.field = 'forecast_category'
+                 AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
                 WHERE o.org_id = $1
                 ${dealsWhereSql}
               ),
@@ -743,18 +707,12 @@ export async function QuarterSalesForecastSummary(props: {
               open_deals AS (
                 SELECT *
                   FROM deals_in_qtr d
-                 WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-                   AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-                   AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+                 WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
               ),
               classified AS (
                 SELECT
                   *,
-                  CASE
-                    WHEN fs LIKE '%commit%' THEN 'commit'
-                    WHEN fs LIKE '%best%' THEN 'best_case'
-                    ELSE 'pipeline'
-                  END AS crm_bucket
+                  crm_bucket
                 FROM open_deals
               ),
               with_rules AS (

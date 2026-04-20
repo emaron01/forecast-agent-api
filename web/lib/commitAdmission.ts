@@ -16,6 +16,8 @@ const COMMIT_CATEGORIES = [
 
 export type CrmBucket = "commit" | "best_case" | "pipeline";
 
+export type OrgStageMapping = { stage_value: string; bucket: string };
+
 /**
  * Compute CRM forecast bucket from forecast_stage + sales_stage.
  * Returns null for closed deals.
@@ -23,9 +25,31 @@ export type CrmBucket = "commit" | "best_case" | "pipeline";
 export function computeCrmBucket(row: {
   forecast_stage?: string | null;
   sales_stage?: string | null;
-}): CrmBucket | null {
+}, orgStageMappings?: OrgStageMapping[]): CrmBucket | null {
   const closed = closedOutcomeFromOpportunityRow(row);
   if (closed) return null;
+
+  if (orgStageMappings?.length) {
+    const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const normBucket = (v: unknown) => norm(v).replace(/\s+/g, "_");
+
+    const sales = norm(row.sales_stage);
+    const forecast = norm(row.forecast_stage);
+
+    const salesMatch = orgStageMappings.find((m) => norm(m.stage_value) === sales);
+    if (salesMatch) {
+      const b = normBucket(salesMatch.bucket);
+      if (b === "commit" || b === "best_case" || b === "pipeline") return b;
+      return null;
+    }
+
+    const forecastMatch = orgStageMappings.find((m) => norm(m.stage_value) === forecast);
+    if (forecastMatch) {
+      const b = normBucket(forecastMatch.bucket);
+      if (b === "commit" || b === "best_case" || b === "pipeline") return b;
+      return null;
+    }
+  }
 
   const fs = String(
     (row.forecast_stage ?? "") + " " + (row.sales_stage ?? "")
@@ -45,12 +69,13 @@ export function computeCrmBucket(row: {
  */
 export function isCommitAdmissionApplicable(
   row: { forecast_stage?: string | null; sales_stage?: string | null },
-  aiForecast: string | null
+  aiForecast: string | null,
+  orgStageMappings?: OrgStageMapping[]
 ): boolean {
   const closed = closedOutcomeFromOpportunityRow(row);
   if (closed) return false;
 
-  const crmBucket = computeCrmBucket(row);
+  const crmBucket = computeCrmBucket(row, orgStageMappings);
   const aiCommit = aiForecast && String(aiForecast).trim().toLowerCase() === "commit";
 
   return crmBucket === "commit" || !!aiCommit;

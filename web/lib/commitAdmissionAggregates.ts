@@ -9,8 +9,10 @@ import {
   computeCrmBucket,
   computeCommitAdmission,
   isCommitAdmissionApplicable,
+  type OrgStageMapping,
 } from "./commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "./aiForecast";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
 function n0(v: any) {
   const n = Number(v);
@@ -58,6 +60,11 @@ export async function getCommitAdmissionAggregates(args: {
   const useScoped = Array.isArray(repFilter) && repFilter.length > 0;
   const requirePartner = !!args.requirePartnerName;
 
+  const orgStageMappings: OrgStageMapping[] = await pool
+    .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [args.orgId])
+    .then((r) => (r.rows || []) as any[])
+    .catch(() => []);
+
   const { rows } = await pool
     .query(
       `
@@ -73,6 +80,7 @@ export async function getCommitAdmissionAggregates(args: {
           COALESCE(o.amount, 0)::float8 AS amount,
           o.forecast_stage,
           o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           o.health_score,
           o.paper_score, o.process_score, o.timing_score, o.budget_score,
           o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
@@ -85,6 +93,14 @@ export async function getCommitAdmissionAggregates(args: {
             )
           ) AS fs
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.org_id = $1::bigint
           AND o.rep_id IS NOT NULL
@@ -92,9 +108,7 @@ export async function getCommitAdmissionAggregates(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (o.predictive_eligible IS TRUE)
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
+          AND crm_bucket NOT IN ('won', 'lost')
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       )
@@ -126,7 +140,7 @@ export async function getCommitAdmissionAggregates(args: {
   const GATE_CONF_KEYS = ["paper_confidence", "process_confidence", "timing_confidence", "budget_confidence"] as const;
 
   for (const row of deals) {
-    const crmBucket = computeCrmBucket(row);
+    const crmBucket = computeCrmBucket(row, orgStageMappings);
     const aiForecast = computeAiForecastFromHealthScore({
       healthScore: row.health_score,
       forecastStage: row.forecast_stage,
@@ -139,7 +153,7 @@ export async function getCommitAdmissionAggregates(args: {
     commitScopeCount += 1;
     if (crmBucket === "commit") totalCommitCrm += n0(row.amount);
 
-    const applicable = isCommitAdmissionApplicable(row, aiForecast);
+    const applicable = isCommitAdmissionApplicable(row, aiForecast, orgStageMappings);
     const admission = computeCommitAdmission(row, applicable);
 
     if (admission.status === "not_admitted") {
@@ -210,6 +224,11 @@ export async function getCommitAdmissionDealPanels(args: {
   const useScoped = Array.isArray(repFilter) && repFilter.length > 0;
   const requirePartner = !!args.requirePartnerName;
 
+  const orgStageMappings: OrgStageMapping[] = await pool
+    .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [args.orgId])
+    .then((r) => (r.rows || []) as any[])
+    .catch(() => []);
+
   const { rows } = await pool
     .query(
       `
@@ -229,6 +248,7 @@ export async function getCommitAdmissionDealPanels(args: {
           COALESCE(o.amount, 0)::float8 AS amount,
           o.forecast_stage,
           o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           o.health_score,
           o.paper_score, o.process_score, o.timing_score, o.budget_score,
           o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
@@ -241,6 +261,14 @@ export async function getCommitAdmissionDealPanels(args: {
             )
           ) AS fs
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.org_id = $1::bigint
           AND o.rep_id IS NOT NULL
@@ -248,9 +276,7 @@ export async function getCommitAdmissionDealPanels(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (o.predictive_eligible IS TRUE)
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          AND NOT ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% closed %')
+          AND crm_bucket NOT IN ('won', 'lost')
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
       )
@@ -284,7 +310,7 @@ export async function getCommitAdmissionDealPanels(args: {
   const verifiedItems: CommitDealPanelItem[] = [];
 
   for (const row of deals) {
-    const crmBucket = computeCrmBucket(row);
+    const crmBucket = computeCrmBucket(row, orgStageMappings);
     const aiForecast = computeAiForecastFromHealthScore({
       healthScore: row.health_score,
       forecastStage: row.forecast_stage,
@@ -294,7 +320,7 @@ export async function getCommitAdmissionDealPanels(args: {
 
     if (!isCommitScope) continue;
 
-    const applicable = isCommitAdmissionApplicable(row, aiForecast);
+    const applicable = isCommitAdmissionApplicable(row, aiForecast, orgStageMappings);
     const admission = computeCommitAdmission(row, applicable);
 
     const highConfCount = GATE_CONF_KEYS.filter((k) => String((row as any)[k] ?? "").trim().toLowerCase() === "high").length;

@@ -19,6 +19,7 @@ import { ChannelTabPanelClient } from "../components/dashboard/ChannelTabPanelCl
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../lib/channelPartnerHeroData";
 import { listTopPartnerDealsChannelHeroScope } from "../../lib/channelHeroTopPartnerDeals";
 import { isAdmin, isChannelRole, isRepLevel, isSalesLeader } from "../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -78,6 +79,25 @@ export default async function DashboardPage({
       ? await pool
           .query<WeakestDealRow>(
             `
+            WITH bucketed AS (
+              SELECT
+                o.*,
+                (${crmBucketCaseSql("o")}) AS crm_bucket
+              FROM opportunities o
+              LEFT JOIN org_stage_mappings stm
+                ON stm.org_id = o.org_id
+               AND stm.field = 'stage'
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+              LEFT JOIN org_stage_mappings fcm
+                ON fcm.org_id = o.org_id
+               AND fcm.field = 'forecast_category'
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+              WHERE o.org_id = $1::bigint
+                AND o.rep_id = $2::bigint
+                AND o.close_date IS NOT NULL
+                AND o.close_date::date >= $3::date
+                AND o.close_date::date <= $4::date
+            )
             SELECT
               COALESCE(NULLIF(btrim(opportunity_name), ''), NULLIF(btrim(account_name), ''), '(Unnamed)') AS name,
               health_score,
@@ -94,14 +114,8 @@ export default async function DashboardPage({
                 WHEN timing_score = LEAST(pain_score, metrics_score, champion_score, eb_score, criteria_score, process_score, competition_score, paper_score, timing_score, budget_score) THEN 'Timing'
                 ELSE 'Budget'
               END) AS weakest_category
-            FROM opportunities
-            WHERE org_id = $1::bigint
-              AND rep_id = $2::bigint
-              AND close_date IS NOT NULL
-              AND close_date::date >= $3::date
-              AND close_date::date <= $4::date
-              AND COALESCE(TRIM(lower(sales_stage)), '') NOT IN ('closed won', 'closed lost')
-              AND (COALESCE(TRIM(lower(forecast_stage)), '') NOT LIKE '%won%' AND COALESCE(TRIM(lower(forecast_stage)), '') NOT LIKE '%lost%')
+            FROM bucketed
+            WHERE crm_bucket NOT IN ('won', 'lost')
             ORDER BY health_score ASC NULLS LAST
             LIMIT 3
             `,
