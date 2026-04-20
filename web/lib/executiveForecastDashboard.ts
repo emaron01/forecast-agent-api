@@ -353,6 +353,7 @@ export async function getProductsClosedWonByRepForPeriods(args: {
           o.rep_name,
           o.forecast_stage,
           o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -380,15 +381,9 @@ export async function getProductsClosedWonByRepForPeriods(args: {
         WHERE o.org_id = $1
           AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
       ),
-      bucketed AS (
-        SELECT
-          d.*,
-          (${crmBucketCaseSql("d")}) AS crm_bucket
-        FROM deals d
-      ),
       deals_in_periods AS (
         SELECT d.*
-          FROM bucketed d
+          FROM deals d
           JOIN qps ON d.close_d IS NOT NULL
            AND d.close_d >= qps.period_start
            AND d.close_d <= qps.period_end
@@ -589,19 +584,23 @@ async function loadOpenPipelineByMotionForExecutive(args: { orgId: number; quota
       SELECT
         (${partnerMotionCaseSql("o")})::text AS motion,
         COALESCE(o.amount, 0)::float8 AS amount,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        (${crmBucketCaseSql("o")}) AS crm_bucket
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       JOIN qp ON TRUE
       WHERE o.org_id = $1
         AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
-        AND NOT (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-        )
+        AND crm_bucket NOT IN ('won', 'lost')
     )
     SELECT
       motion,
@@ -632,8 +631,16 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
       SELECT
         btrim(o.partner_name) AS partner_name,
         COALESCE(o.amount, 0)::float8 AS amount,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        (${crmBucketCaseSql("o")}) AS crm_bucket
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       JOIN qp ON TRUE
       WHERE o.org_id = $1
         AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
@@ -643,11 +650,7 @@ async function listOpenPipelineByPartnerForExecutive(args: { orgId: number; quot
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
-        AND NOT (
-          ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-          OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-        )
+        AND crm_bucket NOT IN ('won', 'lost')
     )
     SELECT
       partner_name,
@@ -1575,6 +1578,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
               COALESCE(o.amount, 0) AS amount,
               o.rep_id,
               o.rep_name,
+              o.forecast_stage,
+              o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               lower(
                 regexp_replace(
                   COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1591,6 +1597,14 @@ export async function getExecutiveForecastDashboardSummary(args: {
                 ELSE NULL
               END AS close_d
             FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
             WHERE o.org_id = $1
               AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
@@ -1611,71 +1625,11 @@ export async function getExecutiveForecastDashboardSummary(args: {
               NULLIF(btrim(d.rep_name), ''),
               '(Unknown rep)'
             ) AS rep_name,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% loss %')
-                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || d.fs || ' ') LIKE '% dead %')
-                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%'
-                OR (
-                  ((' ' || d.fs || ' ') LIKE '% closed %')
-                  AND d.fs NOT LIKE '%won%'
-                  AND d.fs NOT LIKE '%lost%'
-                  AND d.fs NOT LIKE '%loss%'
-                  AND d.fs NOT LIKE '%duplicate%'
-                )
-              THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS commit_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% loss %')
-                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || d.fs || ' ') LIKE '% dead %')
-                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
-              THEN 0
-              WHEN d.fs LIKE '%best%' THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS best_case_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %')
-                OR ((' ' || d.fs || ' ') LIKE '% lost %')
-                OR ((' ' || d.fs || ' ') LIKE '% loss %')
-                OR ((' ' || d.fs || ' ') LIKE '% duplicate %')
-                OR ((' ' || d.fs || ' ') LIKE '% dead %')
-                OR ((' ' || d.fs || ' ') LIKE '% disqualified %')
-                OR ((' ' || d.fs || ' ') LIKE '% cancelled %')
-                OR ((' ' || d.fs || ' ') LIKE '% omitted %')
-              THEN 0
-              WHEN d.fs LIKE '%commit%'
-                OR (
-                  ((' ' || d.fs || ' ') LIKE '% closed %')
-                  AND d.fs NOT LIKE '%won%'
-                  AND d.fs NOT LIKE '%lost%'
-                  AND d.fs NOT LIKE '%loss%'
-                  AND d.fs NOT LIKE '%duplicate%'
-                )
-              THEN 0
-              WHEN d.fs LIKE '%best%' THEN 0
-              ELSE d.amount
-            END), 0)::float8 AS pipeline_amount,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN d.amount
-              ELSE 0
-            END), 0)::float8 AS won_amount
-            ,
-            COALESCE(SUM(CASE
-              WHEN ((' ' || d.fs || ' ') LIKE '% won %') THEN 1
-              ELSE 0
-            END), 0)::int AS won_count
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'commit' THEN d.amount ELSE 0 END), 0)::float8 AS commit_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'best_case' THEN d.amount ELSE 0 END), 0)::float8 AS best_case_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'pipeline' THEN d.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'won' THEN d.amount ELSE 0 END), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE WHEN d.crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count
           FROM deals_in_qtr d
           LEFT JOIN reps r
             ON r.id = d.rep_id
@@ -1725,6 +1679,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               o.health_score,
               o.forecast_stage,
               o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               lower(
                 regexp_replace(
                   COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1752,15 +1707,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
             WHERE o.org_id = $1
               AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
-          bucketed AS (
-            SELECT
-              d.*,
-              (${crmBucketCaseSql("d")}) AS crm_bucket
-            FROM deals d
-          ),
           deals_in_qtr AS (
             SELECT d.*
-              FROM bucketed d
+              FROM deals d
               JOIN qp ON TRUE
              WHERE d.close_d IS NOT NULL
                AND d.close_d >= qp.period_start
@@ -1844,6 +1793,7 @@ export async function getExecutiveForecastDashboardSummary(args: {
               o.rep_name,
               o.forecast_stage,
               o.sales_stage,
+              (${crmBucketCaseSql("o")}) AS crm_bucket,
               lower(
                 regexp_replace(
                   COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -1871,15 +1821,9 @@ export async function getExecutiveForecastDashboardSummary(args: {
             WHERE o.org_id = $1
               AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
           ),
-          bucketed AS (
-            SELECT
-              d.*,
-              (${crmBucketCaseSql("d")}) AS crm_bucket
-            FROM deals d
-          ),
           deals_in_qtr AS (
             SELECT d.*
-              FROM bucketed d
+              FROM deals d
               JOIN qp ON TRUE
              WHERE d.close_d IS NOT NULL
                AND d.close_d >= qp.period_start
