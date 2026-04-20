@@ -303,10 +303,8 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
            WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
         ),
         classified AS (
-          SELECT
-            *,
-            crm_bucket
-          FROM open_deals
+          SELECT *
+            FROM open_deals
         ),
         with_rules AS (
           SELECT
@@ -339,20 +337,19 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
           FROM with_rules
         )
         SELECT
-          COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_crm,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS commit_verdict,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_crm,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS best_case_verdict,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_crm,
-          COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount * health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
-        FROM with_modifier
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'commit' THEN wm.amount ELSE 0 END), 0)::float8 AS commit_crm,
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'commit' THEN wm.amount * wm.health_modifier ELSE 0 END), 0)::float8 AS commit_verdict,
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'best_case' THEN wm.amount ELSE 0 END), 0)::float8 AS best_case_crm,
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'best_case' THEN wm.amount * wm.health_modifier ELSE 0 END), 0)::float8 AS best_case_verdict,
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'pipeline' THEN wm.amount ELSE 0 END), 0)::float8 AS pipeline_crm,
+          COALESCE(SUM(CASE WHEN wm.crm_bucket = 'pipeline' THEN wm.amount * wm.health_modifier ELSE 0 END), 0)::float8 AS pipeline_verdict
+        FROM with_modifier wm
         `,
         [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
       )
       .then((r) => r.rows?.[0] || empty);
     return row;
-  } catch (e) {
-    console.error("[loadPartnerVerdictAgg] error:", e);
+  } catch {
     return empty;
   }
 }
