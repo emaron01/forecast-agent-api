@@ -61,9 +61,13 @@ type Agg = {
   quarter_name: string;
   won_count: number;
   lost_count: number;
+  commit_count: number;
+  best_case_count: number;
   pipeline_count: number;
   won_amount: number;
   lost_amount: number;
+  commit_amount: number;
+  best_case_amount: number;
   pipeline_amount: number;
   win_rate: number;
   avg_days_won: number | null;
@@ -115,6 +119,8 @@ type Agg = {
   products: Record<string, number>;
   products_won: Record<string, number>;
   products_lost: Record<string, number>;
+  products_commit: Record<string, number>;
+  products_best_case: Record<string, number>;
   products_pipeline: Record<string, number>;
 };
 
@@ -124,10 +130,12 @@ function norm(s: unknown) {
 
 type OrgStageMapping = { stage_value: string; bucket: string };
 
+type Outcome5 = "won" | "lost" | "commit" | "best_case" | "pipeline";
+
 function outcome(
   row: { sales_stage: string | null; forecast_stage: string | null },
   orgStageMappings?: OrgStageMapping[]
-): "won" | "lost" | "pipeline" {
+): Outcome5 {
   if (orgStageMappings?.length) {
     const normStage = (v: unknown) => String(v ?? "").trim().toLowerCase();
     const sales = normStage(row.sales_stage);
@@ -141,6 +149,9 @@ function outcome(
       const b = String(match.bucket ?? "").trim().toLowerCase().replace(/\s+/g, "_");
       if (b === "won") return "won";
       if (b === "lost") return "lost";
+      if (b === "commit") return "commit";
+      if (b === "best_case") return "best_case";
+      if (b === "excluded") return "lost";
       return "pipeline";
     }
   }
@@ -149,6 +160,17 @@ function outcome(
   const fs = norm(row.forecast_stage);
   if (ss.includes("won") || fs.includes("won")) return "won";
   if (ss.includes("lost") || ss.includes("loss") || fs.includes("lost")) return "lost";
+  if (fs.includes("commit") || ss.includes("commit")) return "commit";
+  if (fs.includes("best case") || fs.includes("bestcase") || ss.includes("best case") || ss.includes("bestcase") || fs.includes("best_") || ss.includes("best_")) {
+    return "best_case";
+  }
+  return "pipeline";
+}
+
+function outcomeForMeddpiccAndHealth(out: Outcome5): "won" | "lost" | "pipeline" {
+  if (out === "won") return "won";
+  if (out === "lost") return "lost";
+  // Commit/Best Case roll up under open pipeline for MEDDPICC + health panels
   return "pipeline";
 }
 
@@ -443,9 +465,13 @@ export async function POST(req: Request) {
         quarter_name,
         won_count: 0,
         lost_count: 0,
+        commit_count: 0,
+        best_case_count: 0,
         pipeline_count: 0,
         won_amount: 0,
         lost_amount: 0,
+        commit_amount: 0,
+        best_case_amount: 0,
         pipeline_amount: 0,
         win_rate: 0,
         avg_days_won: null,
@@ -497,6 +523,8 @@ export async function POST(req: Request) {
         products: {},
         products_won: {},
         products_lost: {},
+        products_commit: {},
+        products_best_case: {},
         products_pipeline: {},
       };
       aggByKey.set(k, a);
@@ -617,6 +645,7 @@ export async function POST(req: Request) {
 
     const { a, s } = ensure(bucket_id, qid, qname);
     const out = outcome(r, orgStageMappings);
+    const out3 = outcomeForMeddpiccAndHealth(out);
 
     const days = daysBetween(r.create_date, r.close_date);
     const health = r.health_score != null && Number.isFinite(Number(r.health_score)) ? Number(r.health_score) : null;
@@ -632,6 +661,10 @@ export async function POST(req: Request) {
         s.health_won_sum += health;
         s.health_won_n += 1;
       }
+      if (r.product) {
+        const k = String(r.product || "").trim() || "(Unspecified)";
+        a.products_won[k] = (a.products_won[k] || 0) + 1;
+      }
     } else if (out === "lost") {
       a.lost_count += 1;
       a.lost_amount += amt;
@@ -643,6 +676,24 @@ export async function POST(req: Request) {
         s.health_lost_sum += health;
         s.health_lost_n += 1;
       }
+      if (r.product) {
+        const k = String(r.product || "").trim() || "(Unspecified)";
+        a.products_lost[k] = (a.products_lost[k] || 0) + 1;
+      }
+    } else if (out === "commit") {
+      a.commit_count += 1;
+      a.commit_amount += amt;
+      if (r.product) {
+        const k = String(r.product || "").trim() || "(Unspecified)";
+        a.products_commit[k] = (a.products_commit[k] || 0) + 1;
+      }
+    } else if (out === "best_case") {
+      a.best_case_count += 1;
+      a.best_case_amount += amt;
+      if (r.product) {
+        const k = String(r.product || "").trim() || "(Unspecified)";
+        a.products_best_case[k] = (a.products_best_case[k] || 0) + 1;
+      }
     } else {
       a.pipeline_count += 1;
       a.pipeline_amount += amt;
@@ -653,6 +704,10 @@ export async function POST(req: Request) {
       if (health != null) {
         s.health_pipe_sum += health;
         s.health_pipe_n += 1;
+      }
+      if (r.product) {
+        const k = String(r.product || "").trim() || "(Unspecified)";
+        a.products_pipeline[k] = (a.products_pipeline[k] || 0) + 1;
       }
     }
 
@@ -688,52 +743,52 @@ export async function POST(req: Request) {
       else addScore(val, keys.pipeline.sum, keys.pipeline.n);
     };
 
-    addScoreByOutcome(r.pain_score, out, {
+    addScoreByOutcome(r.pain_score, out3, {
       won: { sum: "pain_won_sum", n: "pain_won_n" },
       lost: { sum: "pain_lost_sum", n: "pain_lost_n" },
       pipeline: { sum: "pain_pipe_sum", n: "pain_pipe_n" },
     });
-    addScoreByOutcome(r.metrics_score, out, {
+    addScoreByOutcome(r.metrics_score, out3, {
       won: { sum: "metrics_won_sum", n: "metrics_won_n" },
       lost: { sum: "metrics_lost_sum", n: "metrics_lost_n" },
       pipeline: { sum: "metrics_pipe_sum", n: "metrics_pipe_n" },
     });
-    addScoreByOutcome(r.champion_score, out, {
+    addScoreByOutcome(r.champion_score, out3, {
       won: { sum: "champion_won_sum", n: "champion_won_n" },
       lost: { sum: "champion_lost_sum", n: "champion_lost_n" },
       pipeline: { sum: "champion_pipe_sum", n: "champion_pipe_n" },
     });
-    addScoreByOutcome(r.eb_score, out, {
+    addScoreByOutcome(r.eb_score, out3, {
       won: { sum: "eb_won_sum", n: "eb_won_n" },
       lost: { sum: "eb_lost_sum", n: "eb_lost_n" },
       pipeline: { sum: "eb_pipe_sum", n: "eb_pipe_n" },
     });
-    addScoreByOutcome(r.criteria_score, out, {
+    addScoreByOutcome(r.criteria_score, out3, {
       won: { sum: "criteria_won_sum", n: "criteria_won_n" },
       lost: { sum: "criteria_lost_sum", n: "criteria_lost_n" },
       pipeline: { sum: "criteria_pipe_sum", n: "criteria_pipe_n" },
     });
-    addScoreByOutcome(r.process_score, out, {
+    addScoreByOutcome(r.process_score, out3, {
       won: { sum: "process_won_sum", n: "process_won_n" },
       lost: { sum: "process_lost_sum", n: "process_lost_n" },
       pipeline: { sum: "process_pipe_sum", n: "process_pipe_n" },
     });
-    addScoreByOutcome(r.competition_score, out, {
+    addScoreByOutcome(r.competition_score, out3, {
       won: { sum: "competition_won_sum", n: "competition_won_n" },
       lost: { sum: "competition_lost_sum", n: "competition_lost_n" },
       pipeline: { sum: "competition_pipe_sum", n: "competition_pipe_n" },
     });
-    addScoreByOutcome(r.paper_score, out, {
+    addScoreByOutcome(r.paper_score, out3, {
       won: { sum: "paper_won_sum", n: "paper_won_n" },
       lost: { sum: "paper_lost_sum", n: "paper_lost_n" },
       pipeline: { sum: "paper_pipe_sum", n: "paper_pipe_n" },
     });
-    addScoreByOutcome(r.timing_score, out, {
+    addScoreByOutcome(r.timing_score, out3, {
       won: { sum: "timing_won_sum", n: "timing_won_n" },
       lost: { sum: "timing_lost_sum", n: "timing_lost_n" },
       pipeline: { sum: "timing_pipe_sum", n: "timing_pipe_n" },
     });
-    addScoreByOutcome(r.budget_score, out, {
+    addScoreByOutcome(r.budget_score, out3, {
       won: { sum: "budget_won_sum", n: "budget_won_n" },
       lost: { sum: "budget_lost_sum", n: "budget_lost_n" },
       pipeline: { sum: "budget_pipe_sum", n: "budget_pipe_n" },
@@ -742,8 +797,8 @@ export async function POST(req: Request) {
     const product = String(r.product || "").trim();
     if (product) {
       a.products[product] = (Number(a.products[product] || 0) || 0) + amt;
-      if (out === "won") a.products_won[product] = (Number(a.products_won[product] || 0) || 0) + amt;
-      else if (out === "lost") a.products_lost[product] = (Number(a.products_lost[product] || 0) || 0) + amt;
+      if (out3 === "won") a.products_won[product] = (Number(a.products_won[product] || 0) || 0) + amt;
+      else if (out3 === "lost") a.products_lost[product] = (Number(a.products_lost[product] || 0) || 0) + amt;
       else a.products_pipeline[product] = (Number(a.products_pipeline[product] || 0) || 0) + amt;
     }
   }
