@@ -22,6 +22,7 @@ import { getExecutiveForecastDashboardSummary } from "../../../lib/executiveFore
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { HIERARCHY, isChannelRep, isChannelRole, isSalesRep } from "../../../lib/roleHelpers";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
+import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
 import { listTopPartnerDealsChannelHeroScope } from "../../../lib/channelHeroTopPartnerDeals";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
@@ -904,12 +905,15 @@ export default async function ChannelDashboardPage({
       : [];
 
   const channelPartnersExecutive =
-    summary.partnersExecutive && channelSummary
-      ? {
-          ...summary.partnersExecutive,
-          top_partners: channelPartnerTopRows,
-        }
-      : summary.partnersExecutive;
+    selectedPeriodId && channelViewerHasDataScope
+      ? await loadChannelPartnersExecutive({
+          orgId,
+          quotaPeriodId: selectedPeriodId,
+          prevQuotaPeriodId: prevQpId,
+          territoryRepIds,
+          partnerNames: viewerChannelScopePartnerNames,
+        }).catch(() => null)
+      : null;
 
   const channelTopPartnerWon =
     channelSummary?.topPartnerDealsWon.map((d) => mapChannelDealToTopDealRow(d)) ?? topPartnerWon;
