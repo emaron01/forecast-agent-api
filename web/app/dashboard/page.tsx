@@ -17,6 +17,7 @@ import { setExecDefaultTabAction } from "../actions/execTabPreferences";
 import { ScopedDashboardTabsClient } from "../components/dashboard/ScopedDashboardTabsClient";
 import { ChannelTabPanelClient } from "../components/dashboard/ChannelTabPanelClient";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../lib/channelPartnerHeroData";
+import { loadChannelPartnersExecutive } from "../../lib/channelPartnersExecutive";
 import { listTopPartnerDealsChannelHeroScope } from "../../lib/channelHeroTopPartnerDeals";
 import { isAdmin, isChannelRole, isRepLevel, isSalesLeader } from "../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../lib/crmBucketCaseSql";
@@ -218,10 +219,11 @@ export default async function DashboardPage({
   let repChannelLedFed: Awaited<ReturnType<typeof loadChannelLedFedRows>> = [];
   let repTopPartnerWon: Awaited<ReturnType<typeof listTopPartnerDealsChannelHeroScope>> = [];
   let repTopPartnerLost: Awaited<ReturnType<typeof listTopPartnerDealsChannelHeroScope>> = [];
+  let repPartnersExecutive: Awaited<ReturnType<typeof loadChannelPartnersExecutive>> = null;
 
   if (isRepLevel(ctx.user.hierarchy_level) && repId != null && selectedPeriod && selectedQuotaPeriodIdStr) {
     try {
-      const [ph, lf, w, l] = await Promise.all([
+      const [ph, lf, w, l, pe] = await Promise.all([
         loadChannelPartnerHeroProps({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedQuotaPeriodIdStr,
@@ -257,16 +259,25 @@ export default async function DashboardPage({
           scopePartnerNames: [],
           assignedPartnerNames: [],
         }),
+        loadChannelPartnersExecutive({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedQuotaPeriodIdStr,
+          prevQuotaPeriodId: prevQpIdForChannel || null,
+          territoryRepIds: [repId],
+          partnerNames: [],
+        }).catch(() => null),
       ]);
       repChannelPartnerHero = ph;
       repChannelLedFed = lf ?? [];
       repTopPartnerWon = w ?? [];
       repTopPartnerLost = l ?? [];
+      repPartnersExecutive = pe;
     } catch {
       repChannelPartnerHero = null;
       repChannelLedFed = [];
       repTopPartnerWon = [];
       repTopPartnerLost = [];
+      repPartnersExecutive = null;
     }
   }
 
@@ -301,7 +312,8 @@ export default async function DashboardPage({
       lost_amount: repChannelPartnerHero?.crmForecast.lost_amount ?? summary.crmForecast.lost_amount,
       lost_count: repChannelPartnerHero?.crmForecast.lost_count ?? summary.crmForecast.lost_count,
     },
-    partnersExecutive: summary.partnersExecutive,
+    // Rep-scoped partner motions (direct / influenced / sourced) for Channel tab — summary.partnersExecutive is often null for single-rep scope, which left the tab body empty once the in-tab hero was deduped.
+    partnersExecutive: repPartnersExecutive ?? summary.partnersExecutive,
     quota: repChannelPartnerHero?.quota ?? summary.quota,
     aiForecast: repChannelPartnerHero?.aiForecast ?? summary.aiForecast.weighted_forecast,
     crmForecast: repChannelPartnerHero?.crmForecastWeighted ?? summary.crmForecast.weighted_forecast,
