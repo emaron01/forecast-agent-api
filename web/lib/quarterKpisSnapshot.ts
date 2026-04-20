@@ -159,16 +159,10 @@ async function getRepKpisByPeriods(args: {
        AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
        AND ($6::int = 0 OR o.rep_id = ANY($3::bigint[]) OR lower(btrim(COALESCE(o.partner_name, ''))) = ANY($7::text[]))
     ),
-    classified AS (
+    bucketed AS (
       SELECT
         b.*,
-        (${crmBucketCaseSql("b")}) AS crm_bucket,
-        (crm_bucket = 'won') AS is_won,
-        (crm_bucket = 'lost') AS is_lost,
-        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
-        (${partnerMotionBarePredicatesSql.isPartnerSourced}) AS motion_sourced,
-        (${partnerMotionBarePredicatesSql.isPartnerInfluenced}) AS motion_influenced,
-        (${partnerMotionBarePredicatesSql.isDirect}) AS motion_direct
+        (${crmBucketCaseSql("b")}) AS crm_bucket
       FROM base b
       LEFT JOIN org_stage_mappings fcm
         ON fcm.org_id = $1::bigint
@@ -178,6 +172,17 @@ async function getRepKpisByPeriods(args: {
         ON stm.org_id = $1::bigint
        AND stm.field = 'stage'
        AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+    ),
+    classified AS (
+      SELECT
+        *,
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+        (${partnerMotionBarePredicatesSql.isPartnerSourced}) AS motion_sourced,
+        (${partnerMotionBarePredicatesSql.isPartnerInfluenced}) AS motion_influenced,
+        (${partnerMotionBarePredicatesSql.isDirect}) AS motion_direct
+      FROM bucketed
     )
     SELECT
       quota_period_id,

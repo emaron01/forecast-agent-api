@@ -117,13 +117,10 @@ export async function getRepKpisByPeriod(args: {
         ON r.organization_id = $1
        AND r.id = o.rep_id
     ),
-    classified AS (
+    bucketed AS (
       SELECT
         b.*,
-        (${crmBucketCaseSql("b")}) AS crm_bucket,
-        (crm_bucket = 'won') AS is_won,
-        (crm_bucket = 'lost') AS is_lost,
-        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active
+        (${crmBucketCaseSql("b")}) AS crm_bucket
       FROM base b
       LEFT JOIN org_stage_mappings fcm
         ON fcm.org_id = $1::bigint
@@ -133,6 +130,14 @@ export async function getRepKpisByPeriod(args: {
         ON stm.org_id = $1::bigint
        AND stm.field = 'stage'
        AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+    ),
+    classified AS (
+      SELECT
+        *,
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active
+      FROM bucketed
     )
     SELECT
       quota_period_id,
