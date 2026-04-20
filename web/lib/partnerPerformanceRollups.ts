@@ -99,30 +99,46 @@ export async function loadChannelDealsScopedPartnerPerformance(args: {
 
   const { rows } = await pool.query<PartnerPerformanceRow>(
     `
-    SELECT
-      NULLIF(btrim(o.partner_name), '') AS partner_name,
-      COUNT(*) FILTER (WHERE ${WON_COND})::int AS won,
-      COUNT(*) FILTER (WHERE ${CLOSED_COND})::int AS closed,
-      AVG(NULLIF(o.health_score, 0))::float8 AS avg_health,
-      COALESCE(SUM(o.amount) FILTER (WHERE ${WON_COND}), 0)::float8 AS revenue
-    FROM opportunities o
-    WHERE o.org_id = $1::bigint
-      AND o.partner_name IS NOT NULL
-      AND btrim(o.partner_name) <> ''
-      AND (
-        (COALESCE(array_length($3::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($3::text[]))
-        OR (
-          COALESCE(array_length($3::text[], 1), 0) = 0
-          AND COALESCE(array_length($2::bigint[], 1), 0) > 0
-          AND o.rep_id IS NOT NULL
-          AND o.rep_id = ANY($2::bigint[])
+    WITH base AS (
+      SELECT
+        NULLIF(btrim(o.partner_name), '') AS partner_name,
+        COALESCE(o.amount, 0)::float8 AS amount,
+        o.health_score,
+        (${crmBucketCaseSql("o")}) AS crm_bucket
+      FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+      WHERE o.org_id = $1::bigint
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND (
+          (COALESCE(array_length($3::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($3::text[]))
+          OR (
+            COALESCE(array_length($3::text[], 1), 0) = 0
+            AND COALESCE(array_length($2::bigint[], 1), 0) > 0
+            AND o.rep_id IS NOT NULL
+            AND o.rep_id = ANY($2::bigint[])
+          )
         )
-      )
-    GROUP BY NULLIF(btrim(o.partner_name), '')
-    HAVING NULLIF(btrim(o.partner_name), '') IS NOT NULL
+    )
+    SELECT
+      partner_name,
+      COUNT(*) FILTER (WHERE crm_bucket = 'won')::int AS won,
+      COUNT(*) FILTER (WHERE crm_bucket IN ('won', 'lost'))::int AS closed,
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health,
+      COALESCE(SUM(amount) FILTER (WHERE crm_bucket = 'won'), 0)::float8 AS revenue
+    FROM base
+    WHERE partner_name IS NOT NULL
+    GROUP BY partner_name
     ORDER BY
-      (COUNT(*) FILTER (WHERE ${WON_COND})::float
-        / NULLIF(COUNT(*) FILTER (WHERE ${CLOSED_COND}), 0)) DESC NULLS LAST,
+      (COUNT(*) FILTER (WHERE crm_bucket = 'won')::float
+        / NULLIF(COUNT(*) FILTER (WHERE crm_bucket IN ('won', 'lost')), 0)) DESC NULLS LAST,
       partner_name ASC
     `,
     [args.orgId, territoryRepIds, partnerNames]

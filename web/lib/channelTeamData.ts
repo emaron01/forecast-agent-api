@@ -11,6 +11,7 @@ import {
 } from "./channelDashboard";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import { getQuotaByRepPeriod, getRepKpisByPeriod, type RepPeriodKpisRow } from "./executiveRepKpis";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 import { pool } from "./pool";
 import type { RepDirectoryRow } from "./repScope";
 import { HIERARCHY, isChannelRoleLevel } from "./roleHelpers";
@@ -230,6 +231,14 @@ async function queryChannelLostDealsByScope(args: {
         o.rep_id::int AS rep_id,
         o.partner_name
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       WHERE o.org_id = $1::bigint
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
@@ -239,16 +248,7 @@ async function queryChannelLostDealsByScope(args: {
         )
         AND o.close_date >= $4::date
         AND o.close_date <= $5::date
-        AND (
-          (' ' || lower(
-            regexp_replace(
-              COALESCE(NULLIF(btrim(o.forecast_stage),''),'')
-              || ' ' ||
-              COALESCE(NULLIF(btrim(o.sales_stage),''),''),
-              '[^a-zA-Z]+', ' ', 'g'
-            )
-          ) || ' ') LIKE '% lost %'
-        )
+        AND (${crmBucketCaseSql("o")}) = 'lost'
       `,
       [args.orgId, args.repIds, names, args.periodStart, args.periodEnd, repLen, partnerLen]
     )
@@ -355,6 +355,14 @@ export async function loadDedupedChannelProductsForScope(args: {
         COALESCE(o.amount, 0)::float8 AS amount,
         o.health_score
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       JOIN qp ON TRUE
       WHERE o.org_id = $1
         AND o.partner_name IS NOT NULL
@@ -365,11 +373,7 @@ export async function loadDedupedChannelProductsForScope(args: {
           ($5::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
           OR ($6::bigint > 0 AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($4::text[]))
         )
-        AND ((' ' || lower(regexp_replace(
-          COALESCE(NULLIF(btrim(o.forecast_stage),''),'') || ' ' ||
-          COALESCE(NULLIF(btrim(o.sales_stage),''),''),
-          '[^a-zA-Z]+', ' ', 'g'
-        )) || ' ') LIKE '% won %')
+        AND (${crmBucketCaseSql("o")}) = 'won'
       ORDER BY o.id
     )
     SELECT
@@ -428,6 +432,7 @@ async function loadPartnerScopedProductsForTerritory(args: {
         COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
         COALESCE(o.amount, 0) AS amount,
         o.health_score,
+        (${crmBucketCaseSql("o")}) AS crm_bucket,
         lower(
           regexp_replace(
             COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -438,6 +443,14 @@ async function loadPartnerScopedProductsForTerritory(args: {
         ) AS fs,
         o.close_date::date AS close_d
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       WHERE o.org_id = $1
         AND (
           ($6::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
@@ -456,7 +469,7 @@ async function loadPartnerScopedProductsForTerritory(args: {
     won_deals AS (
       SELECT *
         FROM deals_in_qtr
-       WHERE ((' ' || fs || ' ') LIKE '% won %')
+       WHERE crm_bucket = 'won'
     )
     SELECT
       product,

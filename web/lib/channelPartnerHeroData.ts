@@ -5,6 +5,7 @@ import { pool } from "./pool";
 import { getForecastStageProbabilities } from "./forecastStageProbabilities";
 import { computeSalesVsVerdictForecastSummary } from "./forecastSummary";
 import { getQuarterKpisSnapshot, type QuarterKpisSnapshot } from "./quarterKpisSnapshot";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 import {
   getCommitAdmissionAggregates,
   getCommitAdmissionDealPanels,
@@ -132,6 +133,9 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
       deals AS (
         SELECT
           COALESCE(o.amount, 0)::float8 AS amount,
+          o.forecast_stage,
+          o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -149,6 +153,14 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
             ELSE NULL
           END AS close_d
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
@@ -168,26 +180,24 @@ async function loadPartnerTotals(orgId: number, qpId: string, repIds: number[], 
         -- to match executive forecast dashboard totals semantics.
         SELECT d.*
           FROM deals_in_qtr d
-         WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-           AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-           AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+         WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
       )
       SELECT
-        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-        COALESCE(SUM(CASE WHEN fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-        AVG(CASE WHEN fs LIKE '%commit%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+        AVG(CASE WHEN crm_bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
 
-        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        AVG(CASE WHEN fs LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        AVG(CASE WHEN crm_bucket = 'best_case' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
 
-        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-        COALESCE(SUM(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-        AVG(CASE WHEN fs NOT LIKE '%commit%' AND fs NOT LIKE '%best%' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+        AVG(CASE WHEN crm_bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
 
         (
           SELECT COALESCE(
-            SUM(CASE WHEN ((' ' || d2.fs || ' ') LIKE '% won %') THEN d2.amount ELSE 0 END),
+            SUM(CASE WHEN d2.crm_bucket = 'won' THEN d2.amount ELSE 0 END),
             0
           )::float8
           FROM deals_in_qtr d2
@@ -245,6 +255,9 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
           SELECT
             COALESCE(o.amount, 0)::float8 AS amount,
             o.health_score,
+            o.forecast_stage,
+            o.sales_stage,
+            (${crmBucketCaseSql("o")}) AS crm_bucket,
             lower(
               regexp_replace(
                 COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -261,6 +274,14 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
               ELSE NULL
             END AS close_d
           FROM opportunities o
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = o.org_id
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = o.org_id
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
           WHERE o.org_id = $1
             AND o.partner_name IS NOT NULL
             AND btrim(o.partner_name) <> ''
@@ -277,18 +298,12 @@ async function loadPartnerVerdictAgg(orgId: number, qpId: string, repIds: number
         open_deals AS (
           SELECT *
             FROM deals_in_qtr d
-           WHERE NOT ((' ' || d.fs || ' ') LIKE '% won %')
-             AND NOT ((' ' || d.fs || ' ') LIKE '% lost %')
-             AND NOT ((' ' || d.fs || ' ') LIKE '% closed %')
+           WHERE d.crm_bucket IN ('commit', 'best_case', 'pipeline')
         ),
         classified AS (
           SELECT
             *,
-            CASE
-              WHEN fs LIKE '%commit%' THEN 'commit'
-              WHEN fs LIKE '%best%' THEN 'best_case'
-              ELSE 'pipeline'
-            END AS crm_bucket
+            crm_bucket
           FROM open_deals
         ),
         with_rules AS (
@@ -358,6 +373,9 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
           o.predictive_eligible,
+          o.forecast_stage,
+          o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
           CASE
             WHEN o.close_date IS NULL THEN NULL
@@ -367,6 +385,14 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
             ELSE NULL
           END AS close_d
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         JOIN qp ON TRUE
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
@@ -404,24 +430,19 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
       classified AS (
         SELECT
           *,
-          ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-          (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AS is_active,
-          CASE
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) AND fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
-            ELSE 'other'
-          END AS bucket
+          (crm_bucket = 'won') AS is_won,
+          (crm_bucket = 'lost') AS is_lost,
+          (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+          crm_bucket AS bucket
         FROM base
       )
       SELECT
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
         AVG(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_avg_health_score,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
-        AVG(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_case_amount,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_case_count,
+        AVG(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_case_avg_health_score,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
         AVG(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_avg_health_score,
@@ -468,6 +489,9 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
           COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
           COALESCE(o.amount, 0) AS amount,
           o.health_score,
+          o.forecast_stage,
+          o.sales_stage,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -484,6 +508,14 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
             ELSE NULL
           END AS close_d
         FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
@@ -500,7 +532,7 @@ async function loadProductsClosedWonPartner(orgId: number, qpId: string, repIds:
       won_deals AS (
         SELECT *
           FROM deals_in_qtr
-         WHERE ((' ' || fs || ' ') LIKE '% won %')
+         WHERE crm_bucket = 'won'
       )
       SELECT
         product,
@@ -881,18 +913,7 @@ export async function loadChannelLedFedRows(args: {
       mapped AS (
         SELECT
           b.*,
-          (
-            CASE
-              WHEN stm.bucket IS NOT NULL THEN stm.bucket
-              WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
-              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) = 'closed won' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%won%' THEN 'won'
-              WHEN lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%lost%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%loss%' THEN 'lost'
-              WHEN lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%duplicate%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%dead%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%disqualified%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%cancelled%' OR lower(btrim(COALESCE(b.sales_stage::text, ''))) LIKE '%omitted%' THEN 'excluded'
-              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) LIKE '%commit%' THEN 'commit'
-              WHEN lower(btrim(COALESCE(b.forecast_stage::text, ''))) LIKE '%best%' THEN 'best_case'
-              ELSE 'pipeline'
-            END
-          )::text AS crm_bucket
+          (${crmBucketCaseSql("b")})::text AS crm_bucket
         FROM base b
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = $1::bigint
@@ -906,15 +927,10 @@ export async function loadChannelLedFedRows(args: {
       classified AS (
         SELECT
           m.*,
-          ((' ' || m.fs || ' ') LIKE '% won %') AS is_won,
-          (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %')) AS is_lost,
-          (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AS is_active,
-          CASE
-            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AND m.fs LIKE '%commit%' THEN 'commit'
-            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) AND m.fs LIKE '%best%' THEN 'best'
-            WHEN (NOT ((' ' || m.fs || ' ') LIKE '% won %') AND NOT (((' ' || m.fs || ' ') LIKE '% lost %') OR ((' ' || m.fs || ' ') LIKE '% loss %'))) THEN 'pipeline'
-            ELSE 'other'
-          END AS bucket,
+          (m.crm_bucket = 'won') AS is_won,
+          (m.crm_bucket IN ('lost', 'excluded')) AS is_lost,
+          (m.crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
+          m.crm_bucket AS bucket,
           (m.deal_registration IS TRUE) AS is_led
         FROM mapped m
       )
@@ -923,8 +939,8 @@ export async function loadChannelLedFedRows(args: {
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_total_pipeline,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_commit,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_commit,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_best,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_best,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_best,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_best,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_pipeline_only,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_pipeline_only,
         COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_won,

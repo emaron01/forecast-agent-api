@@ -1,6 +1,7 @@
 import "server-only";
 
 import { pool } from "./pool";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
 export type ChannelHeroTopPartnerDealRow = {
   opportunity_public_id: string;
@@ -72,6 +73,29 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
       WHERE org_id = $1::bigint
         AND id = $2::bigint
       LIMIT 1
+    ),
+    bucketed AS (
+      SELECT
+        o.*,
+        (${crmBucketCaseSql("o")}) AS crm_bucket
+      FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+      JOIN qp ON TRUE
+      WHERE o.org_id = $1
+        AND o.partner_name IS NOT NULL
+        AND btrim(o.partner_name) <> ''
+        AND ${channelHeroOppScopeSqlTopDeals("o")}
+        AND ${partnerScopeSql("o", 11)}
+        AND o.close_date IS NOT NULL
+        AND o.close_date >= qp.range_start
+        AND o.close_date <= qp.range_end
     )
     SELECT
       o.public_id::text AS opportunity_public_id,
@@ -85,25 +109,8 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
       o.close_date::date::text AS close_date,
       o.baseline_health_score::float8 AS baseline_health_score,
       o.health_score::float8 AS health_score
-    FROM opportunities o
-    JOIN qp ON TRUE
-    WHERE o.org_id = $1
-      AND o.partner_name IS NOT NULL
-      AND btrim(o.partner_name) <> ''
-      AND ${channelHeroOppScopeSqlTopDeals("o")}
-      AND ${partnerScopeSql("o", 11)}
-      AND o.close_date IS NOT NULL
-      AND o.close_date >= qp.range_start
-      AND o.close_date <= qp.range_end
-      AND (
-        CASE
-          WHEN $3::boolean THEN ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% won %')
-          ELSE (
-            ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% lost %')
-            OR ((' ' || lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) || ' ') LIKE '% loss %')
-          )
-        END
-      )
+    FROM bucketed o
+    WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $4
     `,
