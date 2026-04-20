@@ -1275,6 +1275,24 @@ export default async function ExecutiveDashboardPage({
     try {
       const { rows } = await pool.query<ReviewQueueDealRow>(
         `
+        WITH bucketed AS (
+          SELECT
+            o.*,
+            (${crmBucketCaseSql("o")}) AS crm_bucket
+          FROM opportunities o
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = o.org_id
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = o.org_id
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+          WHERE o.org_id = $1::bigint
+            AND o.rep_id = ANY($2::bigint[])
+            AND o.close_date >= $3::date
+            AND o.close_date < $4::date
+        )
         SELECT
           o.public_id::text AS id,
           COALESCE(NULLIF(btrim(o.opportunity_name), ''), NULLIF(btrim(o.account_name), '')) AS opp_name,
@@ -1291,7 +1309,7 @@ export default async function ExecutiveDashboardPage({
           o.review_request_note,
           u.display_name AS requester_name,
           MAX(oae.ts)::text AS last_reviewed_at
-        FROM opportunities o
+        FROM bucketed o
         JOIN reps r ON r.id = o.rep_id
         LEFT JOIN users u ON u.id = o.review_requested_by
         LEFT JOIN opportunity_audit_events oae
@@ -1319,18 +1337,7 @@ export default async function ExecutiveDashboardPage({
           ORDER BY sa.ts DESC, sa.id DESC
           LIMIT 1
         ) score_after ON true
-        WHERE o.org_id = $1::bigint
-          AND o.rep_id = ANY($2::bigint[])
-          AND o.close_date >= $3::date
-          AND o.close_date < $4::date
-          AND (
-            o.sales_stage IS NULL
-            OR (
-              o.sales_stage NOT ILIKE '%closed%'
-              AND o.sales_stage NOT ILIKE '%won%'
-              AND o.sales_stage NOT ILIKE '%lost%'
-            )
-          )
+        WHERE o.crm_bucket NOT IN ('won', 'lost')
           AND (
             o.forecast_stage IS NULL
             OR o.forecast_stage NOT ILIKE '%closed%'

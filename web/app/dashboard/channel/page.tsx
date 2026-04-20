@@ -27,6 +27,7 @@ import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./Ch
 import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
 import { ChannelTabPanelClient } from "../../components/dashboard/ChannelTabPanelClient";
 import { SimpleForecastDashboardClient } from "../../forecast/simple/simpleClient";
+import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -164,6 +165,9 @@ async function loadPartnerScopedProductsForTerritory(args: {
         COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
         COALESCE(o.amount, 0) AS amount,
         o.health_score,
+        o.forecast_stage,
+        o.sales_stage,
+        (${crmBucketCaseSql("o")}) AS crm_bucket,
         lower(
           regexp_replace(
             COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -180,6 +184,14 @@ async function loadPartnerScopedProductsForTerritory(args: {
           ELSE NULL
         END AS close_d
       FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       WHERE o.org_id = $1
         AND (
           ($6::int > 0 AND o.rep_id = ANY($3::bigint[]))
@@ -198,7 +210,7 @@ async function loadPartnerScopedProductsForTerritory(args: {
     won_deals AS (
       SELECT *
         FROM deals_in_qtr
-       WHERE ((' ' || fs || ' ') LIKE '% won %')
+       WHERE crm_bucket = 'won'
     )
     SELECT
       product,
@@ -436,13 +448,7 @@ async function getChannelDashboardHeroMetrics(args: {
           o.partner_name,
           o.forecast_stage,
           o.sales_stage,
-          CASE
-            WHEN stm.bucket IS NOT NULL THEN stm.bucket
-            WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
-            WHEN lower(btrim(COALESCE(o.forecast_stage, ''))) IN ('closed won', 'won') THEN 'won'
-            WHEN lower(btrim(COALESCE(o.sales_stage, ''))) LIKE '%lost%' THEN 'lost'
-            ELSE 'pipeline'
-          END AS crm_bucket,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -454,11 +460,11 @@ async function getChannelDashboardHeroMetrics(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND (
             ($9::int > 0 AND o.rep_id = ANY($3::bigint[]))
@@ -478,13 +484,7 @@ async function getChannelDashboardHeroMetrics(args: {
           o.amount,
           o.forecast_stage,
           o.sales_stage,
-          CASE
-            WHEN stm.bucket IS NOT NULL THEN stm.bucket
-            WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
-            WHEN lower(btrim(COALESCE(o.forecast_stage, ''))) IN ('closed won', 'won') THEN 'won'
-            WHEN lower(btrim(COALESCE(o.sales_stage, ''))) LIKE '%lost%' THEN 'lost'
-            ELSE 'pipeline'
-          END AS crm_bucket,
+          (${crmBucketCaseSql("o")}) AS crm_bucket,
           CASE
             WHEN o.close_date IS NULL THEN NULL
             WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -496,11 +496,11 @@ async function getChannelDashboardHeroMetrics(args: {
         LEFT JOIN org_stage_mappings stm
           ON stm.org_id = o.org_id
          AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
         LEFT JOIN org_stage_mappings fcm
           ON fcm.org_id = o.org_id
          AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         WHERE o.org_id = $1::bigint
           AND (
             ($9::int > 0 AND o.rep_id = ANY($3::bigint[]))

@@ -122,7 +122,29 @@ function norm(s: unknown) {
   return String(s ?? "").toLowerCase();
 }
 
-function outcome(row: { sales_stage: string | null; forecast_stage: string | null }): "won" | "lost" | "pipeline" {
+type OrgStageMapping = { stage_value: string; bucket: string };
+
+function outcome(
+  row: { sales_stage: string | null; forecast_stage: string | null },
+  orgStageMappings?: OrgStageMapping[]
+): "won" | "lost" | "pipeline" {
+  if (orgStageMappings?.length) {
+    const normStage = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const sales = normStage(row.sales_stage);
+    const forecast = normStage(row.forecast_stage);
+
+    const match = orgStageMappings.find((m) => {
+      const v = normStage(m.stage_value);
+      return v === sales || v === forecast;
+    });
+    if (match) {
+      const b = String(match.bucket ?? "").trim().toLowerCase().replace(/\s+/g, "_");
+      if (b === "won") return "won";
+      if (b === "lost") return "lost";
+      return "pipeline";
+    }
+  }
+
   const ss = norm(row.sales_stage);
   const fs = norm(row.forecast_stage);
   if (ss.includes("won") || fs.includes("won")) return "won";
@@ -152,6 +174,10 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError(400, "Invalid payload");
 
   const orgId = ctx.user.org_id;
+  const orgStageMappings: OrgStageMapping[] = await pool
+    .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [orgId])
+    .then((r) => (r.rows || []) as any[])
+    .catch(() => []);
   const bucketsRaw = parsed.data.buckets.slice().sort((a, b) => Number(a.min) - Number(b.min));
   const quarterIds = parsed.data.quarterIds.map((s) => String(s));
   let repIds: string[] | null = parsed.data.repIds ? parsed.data.repIds.map((s) => String(s)) : null;
@@ -590,7 +616,7 @@ export async function POST(req: Request) {
     if (!qid) continue;
 
     const { a, s } = ensure(bucket_id, qid, qname);
-    const out = outcome(r);
+    const out = outcome(r, orgStageMappings);
 
     const days = daysBetween(r.create_date, r.close_date);
     const health = r.health_score != null && Number.isFinite(Number(r.health_score)) ? Number(r.health_score) : null;

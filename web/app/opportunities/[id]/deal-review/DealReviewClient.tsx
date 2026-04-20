@@ -38,6 +38,34 @@ type OppState = {
   scoring?: Scoring | null;
 };
 
+type OrgStageMapping = { stage_value: string; bucket: string };
+
+function resolveOpenBucketFromStages(
+  forecastStage: string,
+  salesStage: string,
+  orgStageMappings?: OrgStageMapping[] | null
+): "commit" | "best_case" | "pipeline" | null {
+  if (orgStageMappings?.length) {
+    const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
+    const fs = norm(forecastStage);
+    const ss = norm(salesStage);
+    const match = orgStageMappings.find((m) => {
+      const v = norm(m.stage_value);
+      return v && (v === fs || v === ss);
+    });
+    const b = match ? norm(match.bucket).replace(/\s+/g, "_") : "";
+    if (b === "commit" || b === "best_case" || b === "pipeline") return b;
+    if (b === "won" || b === "lost" || b === "excluded") return null;
+  }
+
+  const stage = String(forecastStage || "").trim().toLowerCase();
+  if (!stage) return "pipeline";
+  if (stage.includes("won") || stage.includes("lost") || stage.includes("loss") || stage.includes("closed")) return null;
+  if (stage.includes("commit")) return "commit";
+  if (stage.includes("best case") || stage.includes("bestcase") || stage.includes("best")) return "best_case";
+  return "pipeline";
+}
+
 function b64ToBlob(b64: string, mime: string) {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -126,11 +154,13 @@ const CHAIN_ORDER_BEST_CASE_COMMIT: CategoryKey[] = [
   "paper",
 ];
 
-function buildInitialChain(forecastStage: string): CategoryKey[] {
-  const stage = String(forecastStage || "").trim().toLowerCase();
-  if (stage.includes("commit") || stage.includes("best case") || stage.includes("bestcase")) {
-    return [...CHAIN_ORDER_BEST_CASE_COMMIT];
-  }
+function buildInitialChain(
+  forecastStage: string,
+  salesStage: string,
+  orgStageMappings?: OrgStageMapping[]
+): CategoryKey[] {
+  const bucket = resolveOpenBucketFromStages(forecastStage, salesStage, orgStageMappings || null);
+  if (bucket === "commit" || bucket === "best_case") return [...CHAIN_ORDER_BEST_CASE_COMMIT];
   return [...CHAIN_ORDER_PIPELINE];
 }
 
@@ -200,6 +230,8 @@ export function DealReviewClient(props: {
   const prevSessionHasActiveCategoryRef = useRef(false);
 
   const [oppState, setOppState] = useState<OppState | null>(null);
+  const [orgStageMappings, setOrgStageMappings] = useState<OrgStageMapping[] | null>(null);
+  const orgStageMappingsRef = useRef<OrgStageMapping[] | null>(null);
   const [catSessionId, setCatSessionId] = useState("");
   const [catMessages, setCatMessages] = useState<HandsFreeMessage[]>([]);
   /** When non-null, Full Review is running as a chain; value is current category index in fullReviewChainOrder. */
@@ -266,6 +298,7 @@ export function DealReviewClient(props: {
   const fullReviewChainIndexRef = useRef<number | null>(null);
   const fullReviewChainOrderRef = useRef<CategoryKey[]>([]);
   const fullReviewForecastStageRef = useRef<string>("");
+  const fullReviewSalesStageRef = useRef<string>("");
   /** Scores for completed categories in this chain (0–3); used for promotion/demotion. */
   const chainScoresRef = useRef<Record<string, number>>({});
   /** When champion completes with champion_name in response, store for economic_buyer cross-category prompt. */
@@ -366,6 +399,17 @@ export function DealReviewClient(props: {
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "State load failed");
       setOppState(json as OppState);
+      const maybeMappings = (json as any)?.orgStageMappings ?? (json as any)?.org_stage_mappings ?? null;
+      if (Array.isArray(maybeMappings)) {
+        setOrgStageMappings(
+          maybeMappings
+            .map((m: any) => ({
+              stage_value: String(m?.stage_value ?? "").trim(),
+              bucket: String(m?.bucket ?? "").trim(),
+            }))
+            .filter((m: OrgStageMapping) => m.stage_value && m.bucket)
+        );
+      }
     } catch (e: any) {
       // Keep UI alive even if state fails.
       setOppState(null);
@@ -375,6 +419,10 @@ export function DealReviewClient(props: {
   useEffect(() => {
     void loadOpportunityState();
   }, [loadOpportunityState]);
+
+  useEffect(() => {
+    orgStageMappingsRef.current = orgStageMappings;
+  }, [orgStageMappings]);
 
   const refreshMicDevices = useCallback(async () => {
     try {
@@ -825,9 +873,10 @@ export function DealReviewClient(props: {
       }
       let order = [...fullReviewChainOrderRef.current];
       const forecastStage = fullReviewForecastStageRef.current;
-      const stageLower = forecastStage.trim().toLowerCase();
-      const isPipeline = !stageLower.includes("commit") && !stageLower.includes("best case") && !stageLower.includes("bestcase");
-      const isBestCaseOrCommit = stageLower.includes("commit") || stageLower.includes("best case") || stageLower.includes("bestcase");
+      const salesStage = fullReviewSalesStageRef.current;
+      const bucket = resolveOpenBucketFromStages(forecastStage, salesStage, orgStageMappingsRef.current);
+      const isPipeline = bucket === "pipeline";
+      const isBestCaseOrCommit = bucket === "commit" || bucket === "best_case";
 
       // Score-driven promotion: Pipeline deal, after competition, pain AND metrics both > 50% (score >= 2) → add criteria, process
       if (isPipeline && savedCategory === "competition") {
@@ -1408,7 +1457,13 @@ export function DealReviewClient(props: {
     const forecastStage = String(
       (opportunity as any)?.forecast_stage ?? (opportunity as any)?.forecastStage ?? ""
     ).trim();
-    const initialChain = buildInitialChain(forecastStage);
+    const salesStage = String((opportunity as any)?.sales_stage ?? (opportunity as any)?.salesStage ?? "").trim();
+    const crmBucket = String((opportunity as any)?.crm_bucket ?? (opportunity as any)?.crmBucket ?? "").trim();
+    const effectiveMappings =
+      crmBucket && forecastStage
+        ? ([{ stage_value: forecastStage, bucket: crmBucket }, ...(orgStageMappingsRef.current || [])] as OrgStageMapping[])
+        : (orgStageMappingsRef.current as OrgStageMapping[] | null) || undefined;
+    const initialChain = buildInitialChain(forecastStage, salesStage, effectiveMappings);
     console.log(
       JSON.stringify({
         event: "chain_gating",
@@ -1421,6 +1476,7 @@ export function DealReviewClient(props: {
     setBusy(true);
     chainScoresRef.current = {};
     fullReviewForecastStageRef.current = forecastStage;
+    fullReviewSalesStageRef.current = salesStage;
     setFullReviewChainOrder(initialChain);
     setFullReviewChainIndex(0);
     setCatMessages([]);

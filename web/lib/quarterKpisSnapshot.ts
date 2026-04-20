@@ -293,6 +293,9 @@ async function getCreatedPipelineAggByPeriods(args: {
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.health_score,
+        o.forecast_stage,
+        o.sales_stage,
+        (${crmBucketCaseSql("o")}) AS crm_bucket,
         CASE
           WHEN o.close_date IS NULL THEN NULL
           WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
@@ -319,15 +322,23 @@ async function getCreatedPipelineAggByPeriods(args: {
        AND o.create_date::date <= p.period_end
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
        AND (NOT $5::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
     ),
     classified AS (
       SELECT
         *,
         (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AS closed_in_qtr,
         CASE
-          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND fs LIKE '%commit%' THEN 'commit'
-          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND fs LIKE '%best%' THEN 'best'
-          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) THEN 'pipeline'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND crm_bucket = 'commit' THEN 'commit'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND crm_bucket = 'best_case' THEN 'best_case'
+          WHEN NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AND crm_bucket = 'pipeline' THEN 'pipeline'
           ELSE 'other'
         END AS bucket,
         (NOT (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end)) AS is_active
@@ -338,9 +349,9 @@ async function getCreatedPipelineAggByPeriods(args: {
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
       AVG(CASE WHEN is_active AND bucket = 'commit' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS commit_health_score,
-      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
-      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best' THEN 1 ELSE 0 END), 0)::int AS best_count,
-      AVG(CASE WHEN is_active AND bucket = 'best' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_health_score,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN is_active AND bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_count,
+      AVG(CASE WHEN is_active AND bucket = 'best_case' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS best_health_score,
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN is_active AND bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
       AVG(CASE WHEN is_active AND bucket = 'pipeline' THEN NULLIF(health_score, 0) ELSE NULL END)::float8 AS pipeline_health_score,

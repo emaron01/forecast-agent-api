@@ -953,6 +953,7 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
         o.risk_summary,
         o.next_steps,
         o.forecast_stage,
+        o.sales_stage,
         COALESCE(o.run_count, 0)::int AS run_count
       FROM opportunities o
       WHERE o.org_id = $1
@@ -987,15 +988,46 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
     const healthScoreRaw = Number(audit?.total_score ?? opp.health_score ?? 0);
     const healthPct = Math.max(0, Math.min(100, Math.round((healthScoreRaw / 30) * 100)));
 
-    const fs = String(opp.forecast_stage ?? "").toLowerCase();
+    const stageMappings: Array<{ stage_value: string; bucket: string }> = await pool
+      .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [orgId])
+      .then((r) => (r.rows || []) as any[])
+      .catch(() => []);
+
+    function bucketToVerdict(bucket: string): string {
+      switch (String(bucket || "").trim().toLowerCase()) {
+        case "won":
+          return "Commit";
+        case "commit":
+          return "Commit";
+        case "best_case":
+          return "Best Case";
+        case "lost":
+          return "Pipeline";
+        case "pipeline":
+          return "Pipeline";
+        default:
+          return "Pipeline";
+      }
+    }
+
+    const fsRaw = String(opp.forecast_stage ?? "");
+    const ssRaw = String(opp.sales_stage ?? "");
+    const mappedBucket = stageMappings.find((m) => {
+      const v = String(m?.stage_value ?? "").toLowerCase();
+      return v && (v === fsRaw.toLowerCase() || v === ssRaw.toLowerCase());
+    })?.bucket;
+
+    const fs = fsRaw.toLowerCase();
     const verdictFromStage =
-      fs.includes("at risk") || fs.includes("at_risk")
-        ? "At Risk"
-        : fs.includes("commit")
-          ? "Commit"
-          : fs.includes("best")
-            ? "Best Case"
-            : "Pipeline";
+      mappedBucket != null
+        ? bucketToVerdict(mappedBucket)
+        : fs.includes("at risk") || fs.includes("at_risk")
+          ? "At Risk"
+          : fs.includes("commit")
+            ? "Commit"
+            : fs.includes("best")
+              ? "Best Case"
+              : "Pipeline";
     const verdictRaw = String(audit?.ai_forecast ?? "").trim();
     const verdict =
       verdictRaw && ["Commit", "Best Case", "Pipeline", "At Risk"].includes(verdictRaw) ? verdictRaw : verdictFromStage;

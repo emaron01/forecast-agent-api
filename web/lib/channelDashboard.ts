@@ -3,6 +3,7 @@ import "server-only";
 import { pool } from "./pool";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import type { RepDirectoryRow } from "./repScope";
+import { crmBucketCaseSql as crmBucketCaseSqlExpr } from "./crmBucketCaseSql";
 
 const LOG_PREFIX = "[getChannelDashboardSummary]";
 
@@ -198,15 +199,7 @@ function quotaPct(numerator: number, denominator: number): number | null {
 }
 
 function crmBucketCaseSql(rowAlias: string) {
-  return `
-    CASE
-      WHEN stm.bucket IS NOT NULL THEN stm.bucket
-      WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
-      WHEN lower(btrim(COALESCE(${rowAlias}.forecast_stage, ''))) IN ('closed won', 'won') THEN 'won'
-      WHEN lower(btrim(COALESCE(${rowAlias}.sales_stage, ''))) LIKE '%lost%' THEN 'lost'
-      ELSE 'pipeline'
-    END
-  `.trim();
+  return crmBucketCaseSqlExpr(rowAlias);
 }
 
 function parsedCloseDateSql(rowAlias: string) {
