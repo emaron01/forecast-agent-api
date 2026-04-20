@@ -10,6 +10,7 @@ import { TopDealsFiltersClient } from "../quotas/executive/TopDealsFiltersClient
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { HIERARCHY, isAdmin, isChannelExec, isChannelManager, isExecManager, isRep } from "../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -116,6 +117,8 @@ async function getRepKpisByPeriod(args: {
         COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), NULLIF(btrim(o.rep_name), ''), '(Unknown rep)') AS rep_name,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.partner_name,
+        o.forecast_stage,
+        o.sales_stage,
         o.create_date,
         o.close_date,
         lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs,
@@ -136,19 +139,20 @@ async function getRepKpisByPeriod(args: {
     ),
     classified AS (
       SELECT
-        *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
-        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active,
-        CASE
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%commit%' THEN 'commit'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AND fs LIKE '%best%' THEN 'best'
-          WHEN (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) THEN 'pipeline'
-          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN ((' ' || fs || ' ') LIKE '% lost %') THEN 'lost'
-          ELSE 'other'
-        END AS bucket
-      FROM base
+        b.*,
+        (${crmBucketCaseSql("b")}) AS crm_bucket,
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active
+      FROM base b
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
     )
     SELECT
       quota_period_id,
@@ -160,9 +164,9 @@ async function getRepKpisByPeriod(args: {
       COALESCE(SUM(CASE WHEN is_active THEN 1 ELSE 0 END), 0)::int AS active_count,
       COALESCE(SUM(CASE WHEN is_won THEN amount ELSE 0 END), 0)::float8 AS won_amount,
       COALESCE(SUM(CASE WHEN is_active THEN amount ELSE 0 END), 0)::float8 AS active_amount,
-      COALESCE(SUM(CASE WHEN bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-      COALESCE(SUM(CASE WHEN bucket = 'best' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
-      COALESCE(SUM(CASE WHEN bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+      COALESCE(SUM(CASE WHEN crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+      COALESCE(SUM(CASE WHEN crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN amount ELSE 0 END), 0)::float8 AS partner_closed_amount,
       COALESCE(SUM(CASE WHEN (is_won OR is_lost) THEN amount ELSE 0 END), 0)::float8 AS closed_amount,
       COALESCE(SUM(CASE WHEN is_won AND partner_name IS NOT NULL AND btrim(partner_name) <> '' THEN 1 ELSE 0 END), 0)::int AS partner_won_count,

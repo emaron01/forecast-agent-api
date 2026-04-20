@@ -3,6 +3,7 @@ import "server-only";
 import { pool } from "./pool";
 import { getHealthAveragesByPeriods } from "./analyticsHealth";
 import { partnerMotionBarePredicatesSql } from "./partnerMotion";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
 function safeDiv(n: number, d: number) {
   if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0) return null;
@@ -134,6 +135,8 @@ async function getRepKpisByPeriods(args: {
         COALESCE(o.amount, 0)::float8 AS amount,
         o.partner_name,
         o.deal_registration,
+        o.forecast_stage,
+        o.sales_stage,
         o.create_date,
         o.close_date,
         lower(
@@ -158,14 +161,23 @@ async function getRepKpisByPeriods(args: {
     ),
     classified AS (
       SELECT
-        *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost,
-        (NOT ((' ' || fs || ' ') LIKE '% won %') AND NOT ((' ' || fs || ' ') LIKE '% lost %')) AS is_active,
+        b.*,
+        (${crmBucketCaseSql("b")}) AS crm_bucket,
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
         (${partnerMotionBarePredicatesSql.isPartnerSourced}) AS motion_sourced,
         (${partnerMotionBarePredicatesSql.isPartnerInfluenced}) AS motion_influenced,
         (${partnerMotionBarePredicatesSql.isDirect}) AS motion_direct
-      FROM base
+      FROM base b
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
     )
     SELECT
       quota_period_id,
@@ -382,6 +394,8 @@ async function getCreatedPipelineByRepByPeriods(args: {
         r.manager_rep_id::text AS manager_rep_id,
         COALESCE(NULLIF(btrim(m.display_name), ''), NULLIF(btrim(m.rep_name), ''), NULL) AS manager_name,
         COALESCE(o.amount, 0)::float8 AS amount,
+        o.forecast_stage,
+        o.sales_stage,
         lower(
           regexp_replace(
             COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -417,11 +431,18 @@ async function getCreatedPipelineByRepByPeriods(args: {
     ),
     classified AS (
       SELECT
-        *,
+        b.*,
         (close_d IS NOT NULL AND close_d >= period_start AND close_d <= period_end) AS closed_in_qtr,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won_word,
-        ((' ' || fs || ' ') LIKE '% lost %') AS is_lost_word
-      FROM base
+        (${crmBucketCaseSql("b")}) AS crm_bucket
+      FROM base b
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
     )
     SELECT
       quota_period_id,
@@ -429,16 +450,16 @@ async function getCreatedPipelineByRepByPeriods(args: {
       rep_name,
       manager_rep_id,
       manager_name,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%commit%' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%commit%' THEN 1 ELSE 0 END), 0)::int AS commit_count,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%best%' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND fs LIKE '%best%' THEN 1 ELSE 0 END), 0)::int AS best_count,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND NOT (fs LIKE '%commit%') AND NOT (fs LIKE '%best%') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND NOT (fs LIKE '%commit%') AND NOT (fs LIKE '%best%') THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_won_word THEN amount ELSE 0 END), 0)::float8 AS won_amount,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_won_word THEN 1 ELSE 0 END), 0)::int AS won_count,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_lost_word THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND is_lost_word THEN 1 ELSE 0 END), 0)::int AS lost_count
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'commit' THEN amount ELSE 0 END), 0)::float8 AS commit_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'commit' THEN 1 ELSE 0 END), 0)::int AS commit_count,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'best_case' THEN amount ELSE 0 END), 0)::float8 AS best_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'best_case' THEN 1 ELSE 0 END), 0)::int AS best_count,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'pipeline' THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+      COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'lost' THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count
     FROM classified
     GROUP BY
       quota_period_id,

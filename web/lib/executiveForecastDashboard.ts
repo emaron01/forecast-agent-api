@@ -15,6 +15,7 @@ import {
   type CommitAdmissionDealPanels,
 } from "./commitAdmissionAggregates";
 import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
 function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
@@ -67,21 +68,7 @@ export async function getOrgStageMappings(orgId: number): Promise<Map<string, st
  * CRM bucket: org_stage_mappings first (stage `stm` beats forecast_category `fcm`), then text fallbacks.
  * `lost` = closed-loss semantics; `excluded` = ignore (duplicates/spam). Pass row alias (e.g. `r`) with forecast_stage, sales_stage, fs.
  */
-function crmBucketCaseSql(rowAlias: string) {
-  const fc = `lower(btrim(COALESCE(${rowAlias}.forecast_stage::text, '')))`;
-  const st = `lower(btrim(COALESCE(${rowAlias}.sales_stage::text, '')))`;
-  return `
-CASE
-  WHEN stm.bucket IS NOT NULL THEN stm.bucket
-  WHEN fcm.bucket IS NOT NULL THEN fcm.bucket
-  WHEN ${fc} = 'closed won' OR ${st} LIKE '%won%' THEN 'won'
-  WHEN ${st} LIKE '%lost%' OR ${st} LIKE '%loss%' THEN 'lost'
-  WHEN ${st} LIKE '%duplicate%' OR ${st} LIKE '%dead%' OR ${st} LIKE '%disqualified%' OR ${st} LIKE '%cancelled%' OR ${st} LIKE '%omitted%' THEN 'excluded'
-  WHEN ${fc} LIKE '%commit%' THEN 'commit'
-  WHEN ${fc} LIKE '%best%' THEN 'best_case'
-  ELSE 'pipeline'
-END`.trim();
-}
+// crmBucketCaseSql is imported from ./crmBucketCaseSql (logic unchanged).
 
 export type ExecQuotaPeriodLite = {
   id: string;
