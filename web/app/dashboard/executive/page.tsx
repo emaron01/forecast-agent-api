@@ -27,6 +27,7 @@ import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
+import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
 export const runtime = "nodejs";
 
@@ -1624,6 +1625,23 @@ export default async function ExecutiveDashboardPage({
         quota: number;
       }>(
         `
+        WITH bucketed AS (
+          SELECT
+            o.amount,
+            o.close_date,
+            o.rep_id,
+            (${crmBucketCaseSql("o")}) AS crm_bucket
+          FROM opportunities o
+          LEFT JOIN org_stage_mappings stm
+            ON stm.org_id = o.org_id
+           AND stm.field = 'stage'
+           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+          LEFT JOIN org_stage_mappings fcm
+            ON fcm.org_id = o.org_id
+           AND fcm.field = 'forecast_category'
+           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+          WHERE o.org_id = $1::bigint
+        )
         SELECT
           r.public_id::text AS rep_id,
           r.id::text AS rep_int_id,
@@ -1631,66 +1649,31 @@ export default async function ExecutiveDashboardPage({
           qp.period_name,
           qp.fiscal_quarter::text AS fiscal_quarter,
           COALESCE(SUM(
-            CASE WHEN (
-              lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
-              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
-            ) THEN o.amount ELSE 0 END
+            CASE WHEN o.crm_bucket = 'won' THEN o.amount ELSE 0 END
           ), 0)::float8 AS won_amount,
           COALESCE(SUM(CASE
-            WHEN stm.bucket = 'won' OR fcm.bucket = 'won'
-              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%won%'
-              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%won%'
-            THEN 1 ELSE 0 END), 0)::int AS won_count,
+            WHEN o.crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
           COALESCE(SUM(CASE
-            WHEN stm.bucket = 'lost' OR fcm.bucket = 'lost'
-              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%lost%'
-              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%lost%'
-            THEN o.amount ELSE 0 END), 0)::float8 AS lost_amount,
+            WHEN o.crm_bucket = 'lost' THEN o.amount ELSE 0 END), 0)::float8 AS lost_amount,
           COALESCE(SUM(CASE
-            WHEN stm.bucket = 'lost' OR fcm.bucket = 'lost'
-              OR lower(btrim(COALESCE(o.forecast_stage,''))) LIKE '%lost%'
-              OR lower(btrim(COALESCE(o.sales_stage,''))) LIKE '%lost%'
-            THEN 1 ELSE 0 END), 0)::int AS lost_count,
+            WHEN o.crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
           COALESCE(SUM(CASE
-            WHEN (stm.bucket IS NOT NULL AND stm.bucket NOT IN ('won','lost','excluded'))
-              OR (stm.bucket IS NULL AND fcm.bucket IS NOT NULL AND fcm.bucket NOT IN ('won','lost','excluded'))
-              OR (stm.bucket IS NULL AND fcm.bucket IS NULL
-                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%won%'
-                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%won%'
-                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%lost%'
-                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%lost%')
-            THEN o.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN o.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
           COALESCE(SUM(CASE
-            WHEN (stm.bucket IS NOT NULL AND stm.bucket NOT IN ('won','lost','excluded'))
-              OR (stm.bucket IS NULL AND fcm.bucket IS NOT NULL AND fcm.bucket NOT IN ('won','lost','excluded'))
-              OR (stm.bucket IS NULL AND fcm.bucket IS NULL
-                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%won%'
-                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%won%'
-                AND lower(btrim(COALESCE(o.forecast_stage,''))) NOT LIKE '%lost%'
-                AND lower(btrim(COALESCE(o.sales_stage,''))) NOT LIKE '%lost%')
-            THEN 1 ELSE 0 END), 0)::int AS active_count,
+            WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN 1 ELSE 0 END), 0)::int AS active_count,
           COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
         FROM reps r
         JOIN quota_periods qp
           ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
          AND qp.id = ANY($2::bigint[])
-        LEFT JOIN opportunities o
+        LEFT JOIN bucketed o
           ON o.rep_id = r.id
-         AND o.org_id = COALESCE(r.organization_id, r.org_id::bigint)
          AND o.close_date >= qp.period_start
          AND o.close_date <= qp.period_end
         LEFT JOIN quotas q
           ON q.rep_id = r.id
          AND q.quota_period_id = qp.id
          AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-        LEFT JOIN org_stage_mappings stm
-          ON stm.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-         AND stm.field = 'stage'
-         AND stm.stage_value = o.sales_stage
-        LEFT JOIN org_stage_mappings fcm
-          ON fcm.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-         AND fcm.field = 'forecast_category'
-         AND fcm.stage_value = o.forecast_stage
         WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
           AND r.id = ANY($3::bigint[])
         GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start

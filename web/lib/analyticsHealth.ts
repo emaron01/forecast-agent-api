@@ -1,5 +1,6 @@
 import { channelDealScopeIsEmpty, channelDealScopeWhereStrict } from "./channelDealScope";
 import { pool } from "./pool";
+import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
 export type HealthAveragesRow = {
   quota_period_id: string;
@@ -45,7 +46,8 @@ export async function getHealthAveragesByPeriods(args: {
       SELECT
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.health_score, 0)::float8 AS health_score,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        o.forecast_stage,
+        o.sales_stage
       FROM periods p
       JOIN opportunities o
         ON o.org_id = $1
@@ -55,28 +57,34 @@ export async function getHealthAveragesByPeriods(args: {
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
        AND (NOT $7::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
     ),
+    bucketed AS (
+      SELECT
+        b.*,
+        (${crmBucketCaseSql("b")}) AS crm_bucket
+      FROM base b
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+    ),
     classified AS (
       SELECT
         *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-        (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) AS is_active,
-        CASE
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
-          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
-          ELSE 'other'
-        END AS bucket
-      FROM base
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active
+      FROM bucketed
     )
     SELECT
       quota_period_id,
       AVG(CASE WHEN health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_all,
-      AVG(CASE WHEN bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
-      AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
-      AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
+      AVG(CASE WHEN crm_bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
+      AVG(CASE WHEN crm_bucket = 'best_case' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
+      AVG(CASE WHEN crm_bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
       AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
       AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
       AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
@@ -119,7 +127,8 @@ export async function getHealthAveragesByRepByPeriods(args: {
         p.quota_period_id::text AS quota_period_id,
         o.rep_id::text AS rep_id,
         COALESCE(o.health_score, 0)::float8 AS health_score,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        o.forecast_stage,
+        o.sales_stage
       FROM periods p
       JOIN opportunities o
         ON o.org_id = $1
@@ -130,28 +139,34 @@ export async function getHealthAveragesByRepByPeriods(args: {
        AND (NOT $4::boolean OR o.rep_id = ANY($3::bigint[]))
        AND (NOT $7::boolean OR (o.partner_name IS NOT NULL AND btrim(o.partner_name) <> ''))
     ),
+    bucketed AS (
+      SELECT
+        b.*,
+        (${crmBucketCaseSql("b")}) AS crm_bucket
+      FROM base b
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+    ),
     classified AS (
       SELECT
         *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-        CASE
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
-          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
-          ELSE 'other'
-        END AS bucket
-      FROM base
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost
+      FROM bucketed
     )
     SELECT
       quota_period_id,
       rep_id,
       AVG(CASE WHEN health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_all,
-      AVG(CASE WHEN bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
-      AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
-      AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
+      AVG(CASE WHEN crm_bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
+      AVG(CASE WHEN crm_bucket = 'best_case' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
+      AVG(CASE WHEN crm_bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
       AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
       AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
       AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
@@ -204,7 +219,8 @@ export async function getHealthAggregatedByChannelDealScope(args: {
       SELECT
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.health_score, 0)::float8 AS health_score,
-        lower(regexp_replace(COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''), '[^a-zA-Z]+', ' ', 'g')) AS fs
+        o.forecast_stage,
+        o.sales_stage
       FROM periods p
       JOIN opportunities o
         ON o.org_id = $1
@@ -214,27 +230,33 @@ export async function getHealthAggregatedByChannelDealScope(args: {
        AND o.close_date <= p.range_end
        ${scopeSql}
     ),
+    bucketed AS (
+      SELECT
+        b.*,
+        (${crmBucketCaseSql("b")}) AS crm_bucket
+      FROM base b
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = $1::bigint
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(b.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = $1::bigint
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(b.forecast_stage::text, '')))
+    ),
     classified AS (
       SELECT
         *,
-        ((' ' || fs || ' ') LIKE '% won %') AS is_won,
-        (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) AS is_lost,
-        CASE
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%commit%') THEN 'commit'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %') AND fs LIKE '%best%') THEN 'best'
-          WHEN (((' ' || fs || ' ') NOT LIKE '% won %') AND ((' ' || fs || ' ') NOT LIKE '% lost %') AND ((' ' || fs || ' ') NOT LIKE '% loss %')) THEN 'pipeline'
-          WHEN ((' ' || fs || ' ') LIKE '% won %') THEN 'won'
-          WHEN (((' ' || fs || ' ') LIKE '% lost %') OR ((' ' || fs || ' ') LIKE '% loss %')) THEN 'lost'
-          ELSE 'other'
-        END AS bucket
-      FROM base
+        (crm_bucket = 'won') AS is_won,
+        (crm_bucket = 'lost') AS is_lost
+      FROM bucketed
     )
     SELECT
       quota_period_id,
       AVG(CASE WHEN health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_all,
-      AVG(CASE WHEN bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
-      AVG(CASE WHEN bucket = 'best' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
-      AVG(CASE WHEN bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
+      AVG(CASE WHEN crm_bucket = 'commit' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_commit,
+      AVG(CASE WHEN crm_bucket = 'best_case' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_best,
+      AVG(CASE WHEN crm_bucket = 'pipeline' AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_pipeline,
       AVG(CASE WHEN is_won AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_won,
       AVG(CASE WHEN is_lost AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_lost,
       AVG(CASE WHEN (is_won OR is_lost) AND health_score > 0 THEN health_score ELSE NULL END)::float8 AS avg_health_closed
