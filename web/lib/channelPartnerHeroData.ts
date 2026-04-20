@@ -431,7 +431,7 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
         SELECT
           *,
           (crm_bucket = 'won') AS is_won,
-          (crm_bucket = 'lost') AS is_lost,
+          (crm_bucket IN ('lost', 'excluded')) AS is_lost,
           (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
           crm_bucket AS bucket
         FROM base
