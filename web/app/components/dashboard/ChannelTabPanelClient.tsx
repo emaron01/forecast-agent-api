@@ -35,8 +35,12 @@ export function ChannelTabPanelClient(props: {
 
   const isChannelViewerRole = ["CHANNEL_EXECUTIVE", "CHANNEL_DIRECTOR", "CHANNEL_REP"].includes(String(viewerRole || "").trim());
   const isChannelDashboard = String(revenueTabProps.basePath || "").trim() === "/dashboard/channel";
+  const isSalesRepRole = String(viewerRole || "").trim() === "REP";
+  const isRepBookDashboard = String(revenueTabProps.basePath || "").trim() === "/dashboard";
   // Channel dashboard already renders a full HERO above tabs; avoid redundant hero panel inside Channel tab for channel roles.
-  const showEmbeddedChannelHeroPanel = !(isChannelDashboard && isChannelViewerRole);
+  // Rep dashboard (/dashboard, hierarchy 3 / role REP) already renders the gap-insights hero above tabs — same pattern.
+  const showEmbeddedChannelHeroPanel =
+    !(isChannelDashboard && isChannelViewerRole) && !(isRepBookDashboard && isSalesRepRole);
 
   return (
     <div className="-mx-4 -mt-4 space-y-5">
