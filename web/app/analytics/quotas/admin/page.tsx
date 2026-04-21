@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth } from "../../../../lib/auth";
-import { getOrganization, listReps, syncRepsFromUsers } from "../../../../lib/db";
+import { getOrganization, listReps, syncManagerQuotas, syncRepsFromUsers } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../../lib/quotaRollups";
@@ -219,9 +219,11 @@ async function saveRepQuotaSetupAction(formData: FormData) {
       manager_id: String(managerId),
       quota_amount: q.quota_amount,
       annual_target,
-    });
+    }, { skipRollupSync: true });
     if ("error" in r) redirect(`/analytics/quotas/admin?error=${encodeURIComponent(r.error)}`);
   }
+
+  await syncManagerQuotas({ orgId: ctx.user.org_id, startRepId: repId }).catch(() => null);
 
   revalidatePath("/analytics/quotas/admin");
 

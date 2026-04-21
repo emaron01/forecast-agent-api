@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireAuth, type AuthUser } from "../../../../lib/auth";
 import { getOrganization, syncManagerQuotas } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
+import { protectLeaderQuotaRows, upsertRepQuotaForPeriod } from "../../../../lib/quotaService";
 import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { dateOnly } from "../../../../lib/dateOnly";
@@ -165,81 +166,6 @@ async function listQuotaScopedReps(args: {
   }
 
   return { managerRepId, reps: [] as DirectRep[], showTeam: false };
-}
-
-async function upsertRepQuota(args: {
-  orgId: number;
-  repId: number;
-  managerId: number | null;
-  roleLevel: number;
-  quotaPeriodId: string;
-  quotaAmount: number;
-  annualTarget: number;
-  isManual?: boolean;
-}) {
-  const isManual = args.isManual === true;
-  const existing = await pool.query<{ id: string }>(
-    `
-    SELECT id::text AS id
-      FROM quotas
-     WHERE org_id = $1::bigint
-       AND quota_period_id = $2::bigint
-       AND role_level = $3::int
-       AND COALESCE(rep_id, 0) = COALESCE($4::bigint, 0)
-       AND COALESCE(manager_id, 0) = COALESCE($5::bigint, 0)
-     ORDER BY id DESC
-     LIMIT 1
-    `,
-    [args.orgId, args.quotaPeriodId, args.roleLevel, args.repId, args.managerId]
-  );
-
-  const id = String(existing.rows?.[0]?.id || "").trim();
-  if (id) {
-    await pool.query(
-      `
-      UPDATE quotas
-         SET quota_amount = $3::numeric,
-             annual_target = $4::numeric,
-             is_manual = $5::boolean,
-             updated_at = NOW()
-       WHERE org_id = $1::bigint
-         AND id = $2::uuid
-      `,
-      [args.orgId, id, args.quotaAmount, args.annualTarget, isManual]
-    );
-    return;
-  }
-
-  await pool.query(
-    `
-    INSERT INTO quotas (
-      org_id,
-      rep_id,
-      manager_id,
-      role_level,
-      quota_period_id,
-      quota_amount,
-      annual_target,
-      is_manual
-    ) VALUES (
-      $1::bigint,
-      $2::bigint,
-      $3::bigint,
-      $4::int,
-      $5::bigint,
-      $6::numeric,
-      $7::numeric,
-      $8::boolean
-    )
-    ON CONFLICT (org_id, rep_id, quota_period_id)
-    DO UPDATE SET
-      quota_amount = EXCLUDED.quota_amount,
-      annual_target = EXCLUDED.annual_target,
-      is_manual = EXCLUDED.is_manual,
-      updated_at = NOW()
-    `,
-    [args.orgId, args.repId, args.managerId, args.roleLevel, args.quotaPeriodId, args.quotaAmount, args.annualTarget, isManual]
-  );
 }
 
 async function resolveRepByPublicId(args: { orgId: number; repPublicId: string }) {
@@ -407,12 +333,11 @@ async function saveRepQuotasForYearAction(formData: FormData) {
     { quota_period_id: String(q4p.id), quota_amount: q4_quota },
   ];
   for (const qa of quarterAssignments) {
-    await upsertRepQuota({
+    await upsertRepQuotaForPeriod({
       orgId: ctx.user.org_id,
       repId,
+      quotaPeriodId: Number(qa.quota_period_id),
       managerId: quotaScope.managerRepId ?? null,
-      roleLevel: rep?.hierarchy_level ?? 3,
-      quotaPeriodId: qa.quota_period_id,
       quotaAmount: qa.quota_amount,
       annualTarget,
       isManual: quotaIsManual,
@@ -433,17 +358,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
       leaderQuotaRows.some((q) => Number((q as any).annual_target || 0) > 0) ||
       leaderQuotaRows.some((q) => Number(q.quota_amount || 0) > 0);
     if (leaderHasQuota) {
-      await pool.query(
-        `
-        UPDATE quotas
-           SET is_manual = true,
-               updated_at = NOW()
-         WHERE org_id = $1::bigint
-           AND rep_id = $2::bigint
-           AND quota_period_id = ANY($3::bigint[])
-        `,
-        [ctx.user.org_id, channelLeaderOwnRepId, quarterAssignments.map((qa) => qa.quota_period_id)]
-      );
+      await protectLeaderQuotaRows({ orgId: ctx.user.org_id, leaderRepId: channelLeaderOwnRepId });
     }
   }
 

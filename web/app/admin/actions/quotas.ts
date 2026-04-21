@@ -4,6 +4,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { pool } from "../../../lib/pool";
 import { syncManagerQuotas } from "../../../lib/db";
+import { upsertRepQuotaForPeriod } from "../../../lib/quotaService";
 import { requireOrgContext } from "../../../lib/auth";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
 import { isAdmin } from "../../../lib/roleHelpers";
@@ -465,65 +466,15 @@ export async function upsertRepQuotaSet(formData: FormData): Promise<{ ok: true 
   ];
 
   for (const q of quarterRows) {
-    const updated = await pool.query<{ id: string }>(
-      `
-      UPDATE quotas
-         SET quota_amount = $4::numeric,
-             annual_target = $5::numeric,
-             manager_id = $6::bigint,
-             is_manual = false,
-             updated_at = NOW()
-       WHERE org_id = $1::bigint
-         AND rep_id = $2::bigint
-         AND role_level = (
-           SELECT COALESCE(u.hierarchy_level, 3)
-             FROM reps r
-             JOIN users u ON u.id = r.user_id
-            WHERE r.id = $2::bigint
-            LIMIT 1
-         )
-         AND quota_period_id = $3::bigint
-      RETURNING id::text AS id
-      `,
-      [orgId, parsed.rep_id, q.quota_period_id, q.quota_amount, annual_target, manager_id]
-    );
-
-    if (updated.rows?.[0]?.id) continue;
-
-    await pool.query(
-      `
-      INSERT INTO quotas (
-        org_id,
-        rep_id,
-        manager_id,
-        role_level,
-        quota_period_id,
-        quota_amount,
-        annual_target,
-        carry_forward,
-        adjusted_quarterly_quota,
-        is_manual
-      ) VALUES (
-        $1::bigint,
-        $2::bigint,
-        $3::bigint,
-        (
-          SELECT COALESCE(u.hierarchy_level, 3)
-            FROM reps r
-            JOIN users u ON u.id = r.user_id
-           WHERE r.id = $2::bigint
-           LIMIT 1
-        ),
-        $4::bigint,
-        $5::numeric,
-        $6::numeric,
-        0,
-        NULL,
-        false
-      )
-      `,
-      [orgId, parsed.rep_id, manager_id, q.quota_period_id, q.quota_amount, annual_target]
-    );
+    await upsertRepQuotaForPeriod({
+      orgId,
+      repId: Number(parsed.rep_id),
+      quotaPeriodId: Number(q.quota_period_id),
+      quotaAmount: q.quota_amount,
+      annualTarget: annual_target,
+      managerId: manager_id != null ? Number(manager_id) : null,
+      isManual: false,
+    });
   }
 
   const repIdNum = Number(parsed.rep_id);

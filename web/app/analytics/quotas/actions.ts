@@ -3,6 +3,7 @@
 import { pool } from "../../../lib/pool";
 import { syncManagerQuotas } from "../../../lib/db";
 import { requireAuth } from "../../../lib/auth";
+import { upsertRepQuotaForPeriod } from "../../../lib/quotaService";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
 import { getCompanyAttainmentForPeriod, type CompanyAttainmentRow } from "../../../lib/quotaComparisons";
 import type { CroAttainmentRow, ManagerAttainmentRow, RepAttainmentRow } from "../../../lib/quotaRollups";
@@ -239,7 +240,10 @@ function normalizeQuotaRow(rows: any[]): QuotaRow | null {
   return row ? (row as QuotaRow) : null;
 }
 
-export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserSchema>): Promise<ActionResult<QuotaRow>> {
+export async function assignQuotaToUser(
+  input: z.input<typeof AssignQuotaToUserSchema>,
+  options?: { skipRollupSync?: boolean }
+): Promise<ActionResult<QuotaRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
   if (!ensureNotRep(a.ctx.user.hierarchy_level)) return { ok: false, error: "forbidden" };
@@ -258,10 +262,9 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
   });
 
   if (!VALID_QUOTA_LEVELS.includes(roleLevel)) return { ok: false, error: "forbidden" };
+  if (!repId) return { ok: false, error: "invalid_rep_id" };
 
   if (isManager(a.ctx.user)) {
-    if (!repId) return { ok: false, error: "invalid_rep_id" };
-
     const mgrRepId = await managerRepIdForUser({ orgId: a.orgId, userId: a.ctx.user.id });
     if (!mgrRepId) return { ok: false, error: "forbidden" };
     const directRepIds = await directRepIdsForManagerRep({ orgId: a.orgId, managerRepId: mgrRepId });
@@ -271,95 +274,25 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
     return { ok: false, error: "forbidden" };
   }
 
-  const existing = await pool.query<{ id: string }>(
-    `
-    SELECT id::text AS id
-      FROM quotas
-     WHERE org_id = $1::bigint
-       AND quota_period_id = $2::bigint
-       AND role_level = $3::int
-       AND COALESCE(rep_id, 0) = COALESCE($4::bigint, 0)
-       AND COALESCE(manager_id, 0) = COALESCE($5::bigint, 0)
-     ORDER BY id DESC
-     LIMIT 1
-    `,
-    [a.orgId, parsed.quota_period_id, roleLevel, repId, managerId]
-  );
-
-  const id = existing.rows?.[0]?.id ? String(existing.rows[0].id) : "";
-
-  if (id) {
-    const { rows } = await pool.query<QuotaRow>(
-      `
-      UPDATE quotas
-         SET quota_amount = $6::numeric,
-             annual_target = $7::numeric,
-             carry_forward = $8::numeric,
-             adjusted_quarterly_quota = $9::numeric,
-             is_manual = $10::boolean,
-             updated_at = NOW()
-       WHERE org_id = $1::bigint
-         AND id = $2::uuid
-      RETURNING
-        id::text AS id,
-        org_id::text AS org_id,
-        rep_id::text AS rep_id,
-        manager_id::text AS manager_id,
-        role_level,
-        quota_period_id::text AS quota_period_id,
-        quota_amount::float8 AS quota_amount,
-        annual_target::float8 AS annual_target,
-        carry_forward::float8 AS carry_forward,
-        adjusted_quarterly_quota::float8 AS adjusted_quarterly_quota,
-        created_at::text AS created_at,
-        updated_at::text AS updated_at
-      `,
-      [
-        a.orgId,
-        id,
-        repId,
-        managerId,
-        roleLevel,
-        parsed.quota_amount,
-        parsed.annual_target ?? null,
-        parsed.carry_forward ?? null,
-        parsed.adjusted_quarterly_quota ?? null,
-        isManual,
-      ]
-    );
-    const out = await normalizeQuotaRow(rows as any[]);
-    if (!out) return { ok: false, error: "update_failed" };
-    if (repId) {
-      await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
-    }
-    return { ok: true, data: out };
-  }
+  await upsertRepQuotaForPeriod({
+    orgId: a.orgId,
+    repId: Number(repId),
+    quotaPeriodId: Number(parsed.quota_period_id),
+    quotaAmount: parsed.quota_amount,
+    annualTarget: parsed.annual_target ?? 0,
+    managerId: managerId != null ? Number(managerId) : null,
+    isManual,
+  });
 
   const { rows } = await pool.query<QuotaRow>(
     `
-    INSERT INTO quotas (
-      org_id,
-      rep_id,
-      manager_id,
-      role_level,
-      quota_period_id,
-      quota_amount,
-      annual_target,
-      carry_forward,
-      adjusted_quarterly_quota,
-      is_manual
-    ) VALUES (
-      $1::bigint,
-      $2::bigint,
-      $3::bigint,
-      $4::int,
-      $5::bigint,
-      $6::numeric,
-      $7::numeric,
-      $8::numeric,
-      $9::numeric,
-      $10::boolean
-    )
+    UPDATE quotas
+       SET carry_forward = $4::numeric,
+           adjusted_quarterly_quota = $5::numeric,
+           updated_at = NOW()
+     WHERE org_id = $1::bigint
+       AND rep_id = $2::bigint
+       AND quota_period_id = $3::bigint
     RETURNING
       id::text AS id,
       org_id::text AS org_id,
@@ -377,20 +310,15 @@ export async function assignQuotaToUser(input: z.input<typeof AssignQuotaToUserS
     [
       a.orgId,
       repId,
-      managerId,
-      roleLevel,
       parsed.quota_period_id,
-      parsed.quota_amount,
-      parsed.annual_target ?? null,
       parsed.carry_forward ?? null,
       parsed.adjusted_quarterly_quota ?? null,
-      isManual,
     ]
   );
 
   const out = await normalizeQuotaRow(rows as any[]);
-  if (!out) return { ok: false, error: "create_failed" };
-  if (repId) {
+  if (!out) return { ok: false, error: "update_failed" };
+  if (!options?.skipRollupSync) {
     await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
   }
   return { ok: true, data: out };
