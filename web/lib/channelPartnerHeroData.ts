@@ -80,7 +80,8 @@ const emptyStage: StageSnap = {
 
 function healthPctFrom30(score: unknown): number | null {
   const n = Number(score);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n === 0) return 0;
   return Math.max(0, Math.min(100, Math.round((n / 30) * 100)));
 }
 
