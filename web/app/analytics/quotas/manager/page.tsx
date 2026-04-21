@@ -342,8 +342,17 @@ async function saveRepQuotasForYearAction(formData: FormData) {
 
   const quotaScope = await listQuotaScopedReps({ orgId: ctx.user.org_id, user: ctx.user });
   const allowedRepIds = new Set(quotaScope.reps.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0));
-  if ((isChannelExec(ctx.user) || isChannelManager(ctx.user)) && quotaScope.managerRepId != null) {
-    allowedRepIds.add(Number(quotaScope.managerRepId));
+  let channelLeaderOwnRepId: number | null = null;
+  if (isChannelExec(ctx.user) || isChannelManager(ctx.user)) {
+    const selfRows = await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => []);
+    const sid = selfRows[0]?.id;
+    if (sid != null && Number.isFinite(Number(sid)) && Number(sid) > 0) {
+      channelLeaderOwnRepId = Number(sid);
+      allowedRepIds.add(channelLeaderOwnRepId);
+    }
+    if (quotaScope.managerRepId != null) {
+      allowedRepIds.add(Number(quotaScope.managerRepId));
+    }
   }
 
   const rep = await resolveRepByPublicId({ orgId: ctx.user.org_id, repPublicId: rep_public_id });
@@ -415,8 +424,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
 
   const savedOwnLeaderQuota =
     (isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&
-    quotaScope.managerRepId != null &&
-    repId === quotaScope.managerRepId;
+    (channelLeaderOwnRepId != null ? repId === channelLeaderOwnRepId : quotaScope.managerRepId != null && repId === quotaScope.managerRepId);
   if (savedOwnLeaderQuota) {
     redirect(`/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}`);
   }
@@ -567,15 +575,18 @@ export default async function AnalyticsQuotasManagerPage({
     )
   );
 
-  const leaderRepIdNum =
-    quotaScope.managerRepId != null && Number.isFinite(Number(quotaScope.managerRepId))
-      ? Number(quotaScope.managerRepId)
-      : null;
+  /** Same rep row as leaderRepPublicId — never the URL-selected team rep. */
+  const leaderQuotaRepId =
+    leaderSelfRep != null && Number.isFinite(Number(leaderSelfRep.id)) && Number(leaderSelfRep.id) > 0
+      ? Number(leaderSelfRep.id)
+      : quotaScope.managerRepId != null && Number.isFinite(Number(quotaScope.managerRepId))
+        ? Number(quotaScope.managerRepId)
+        : null;
   const leaderQuotas =
-    channelLeaderMode && leaderRepIdNum && quarterPeriodIds.length
+    channelLeaderMode && leaderQuotaRepId && quarterPeriodIds.length
       ? await listRepQuotasByPeriodIds({
           orgId: ctx.user.org_id,
-          repId: leaderRepIdNum,
+          repId: leaderQuotaRepId,
           quotaPeriodIds: quarterPeriodIds,
         }).catch(() => [])
       : [];
@@ -795,7 +806,7 @@ export default async function AnalyticsQuotasManagerPage({
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Set your personal quota target before assigning quotas to your team.
             </p>
-            {!quotaScope.managerRepId || !leaderRepPublicId ? (
+            {!leaderQuotaRepId || !leaderRepPublicId ? (
               <p className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">
                 Your account needs an active rep profile linked to this organization before you can save a personal quota.
               </p>
@@ -805,7 +816,7 @@ export default async function AnalyticsQuotasManagerPage({
               </p>
             ) : (
               <RepQuotaSetupClient
-                key={`leader-self-${fiscal_year}-${leaderRepPublicId}`}
+                key={`leader-quota-${fiscal_year}-${leaderRepPublicId}-${leaderQuotaRepId ?? 0}`}
                 action={saveRepQuotasForYearAction}
                 fiscalYear={fiscal_year}
                 repPublicId={leaderRepPublicId}
@@ -869,6 +880,7 @@ export default async function AnalyticsQuotasManagerPage({
               <span className="font-mono text-xs">{fiscal_year}</span>
             </p>
             <RepQuotaSetupClient
+              key={`rep-quota-${fiscal_year}-${selectedRepPublicId}`}
               action={saveRepQuotasForYearAction}
               fiscalYear={fiscal_year}
               repPublicId={selectedRepPublicId}

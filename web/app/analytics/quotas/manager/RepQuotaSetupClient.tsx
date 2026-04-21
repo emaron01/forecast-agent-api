@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type QuarterKey = "q1" | "q2" | "q3" | "q4";
 
-export function RepQuotaSetupClient(props: {
+type RepQuotaSetupProps = {
   action: (formData: FormData) => void | Promise<void>;
   fiscalYear: string;
   repPublicId: string;
@@ -19,35 +19,52 @@ export function RepQuotaSetupClient(props: {
     initialQuotaAmount: number;
     disabled?: boolean;
   }>;
-}) {
-  const [annual, setAnnual] = useState<string>(
-    props.initialAnnualQuota != null && Number.isFinite(props.initialAnnualQuota) ? String(props.initialAnnualQuota) : ""
-  );
+};
 
-  const [pct, setPct] = useState<Record<QuarterKey, string>>(() => {
-    const out: any = { q1: "", q2: "", q3: "", q4: "" };
-    const a = props.initialAnnualQuota != null && Number.isFinite(props.initialAnnualQuota) ? Number(props.initialAnnualQuota) : 0;
-    for (const q of props.quarters) {
-      if (a > 0 && Number.isFinite(q.initialQuotaAmount)) {
-        const p = (Number(q.initialQuotaAmount) / a) * 100;
-        out[q.key] = Number.isFinite(p) ? String(Math.round(p * 100) / 100) : "";
-      }
+function initialStateFromProps(props: RepQuotaSetupProps) {
+  const annual =
+    props.initialAnnualQuota != null && Number.isFinite(props.initialAnnualQuota)
+      ? String(props.initialAnnualQuota)
+      : "";
+  const a = props.initialAnnualQuota != null && Number.isFinite(props.initialAnnualQuota) ? Number(props.initialAnnualQuota) : 0;
+  const pct: Record<QuarterKey, string> = { q1: "", q2: "", q3: "", q4: "" };
+  for (const q of props.quarters) {
+    if (a > 0 && Number.isFinite(q.initialQuotaAmount)) {
+      const p = (Number(q.initialQuotaAmount) / a) * 100;
+      pct[q.key] = Number.isFinite(p) ? String(Math.round(p * 100) / 100) : "";
     }
-    return out;
-  });
+  }
+  const amount: Record<QuarterKey, string> = { q1: "", q2: "", q3: "", q4: "" };
+  for (const q of props.quarters) amount[q.key] = q.initialQuotaAmount ? String(q.initialQuotaAmount) : "";
+  return {
+    annual,
+    pct,
+    amount,
+    touchedAmount: { q1: false, q2: false, q3: false, q4: false } as Record<QuarterKey, boolean>,
+  };
+}
 
-  const [amount, setAmount] = useState<Record<QuarterKey, string>>(() => {
-    const out: any = { q1: "", q2: "", q3: "", q4: "" };
-    for (const q of props.quarters) out[q.key] = q.initialQuotaAmount ? String(q.initialQuotaAmount) : "";
-    return out;
-  });
+function propsDataKey(props: RepQuotaSetupProps) {
+  return `${props.fiscalYear}|${props.repPublicId}|${props.initialAnnualQuota ?? ""}|${props.quarters
+    .map((q) => `${q.key}:${q.initialQuotaAmount}:${q.disabled ? 1 : 0}`)
+    .join(";")}`;
+}
 
-  const [touchedAmount, setTouchedAmount] = useState<Record<QuarterKey, boolean>>({
-    q1: false,
-    q2: false,
-    q3: false,
-    q4: false,
-  });
+export function RepQuotaSetupClient(props: RepQuotaSetupProps) {
+  const init = initialStateFromProps(props);
+  const [annual, setAnnual] = useState<string>(init.annual);
+  const [pct, setPct] = useState<Record<QuarterKey, string>>(init.pct);
+  const [amount, setAmount] = useState<Record<QuarterKey, string>>(init.amount);
+  const [touchedAmount, setTouchedAmount] = useState<Record<QuarterKey, boolean>>(init.touchedAmount);
+
+  const dataKey = propsDataKey(props);
+  useEffect(() => {
+    const next = initialStateFromProps(props);
+    setAnnual(next.annual);
+    setPct(next.pct);
+    setAmount(next.amount);
+    setTouchedAmount(next.touchedAmount);
+  }, [dataKey]);
 
   const annualNum = useMemo(() => {
     const n = Number(annual);
