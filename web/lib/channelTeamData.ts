@@ -955,6 +955,16 @@ export async function assembleChannelTeamLeaderboardFromState(
 
   const applyOverrides = directorWonAmount > 0 || directorTerritoryLostAmount > 0;
 
+  console.error("[assembleChannelTeamLeaderboard] card override check:", {
+    repId: channelViewerRepId,
+    directorWonAmount,
+    directorTerritoryLostAmount,
+    directorTerritoryLostCount,
+    applyOverrides,
+    channelRollupMultiDirectorCards,
+    managerLostAmountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostAmount : undefined,
+  });
+
   return {
     channelTeamRepRows,
     channelManagerRows,
