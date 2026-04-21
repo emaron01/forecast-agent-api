@@ -434,12 +434,8 @@ export async function loadDedupedChannelProductsForScope(args: {
         AND o.close_date::date >= qp.period_start
         AND o.close_date::date <= qp.period_end
         AND (
-          ($6::bigint > 0 AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($4::text[]))
-          OR (
-            $6::bigint = 0
-            AND $5::bigint > 0
-            AND o.rep_id = ANY($3::bigint[])
-          )
+          ($5::bigint > 0 AND o.rep_id = ANY($3::bigint[]))
+          OR ($6::bigint > 0 AND lower(btrim(COALESCE(o.partner_name,''))) = ANY($4::text[]))
         )
         AND (${crmBucketCaseSql("o")}) = 'won'
       ORDER BY o.id
