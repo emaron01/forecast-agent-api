@@ -793,7 +793,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
         .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : quota * 4;
-    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : wonAmount;
+    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + (q.won_amount ?? 0), 0) : wonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
     const attainPct = quota > 0 ? Math.round((wonAmount / quota) * 100) : 0;
     const productSummary = getProductSummary({
@@ -910,13 +910,18 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
     const repIntIds = subtreeRepIntIds;
     const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
+    const leaderRollupRows = (allPeriodRows ?? []).filter(
+      (r) => String(r.rep_int_id) === "__DEDUPED_CHANNEL_ROLLUP__"
+    );
+    const fyInputRows =
+      leaderRollupRows.length > 0
+        ? leaderRollupRows
+        : (allPeriodRows ?? []).filter((r) => subtreeRepIntIds.includes(String(r.rep_int_id)));
     const fyQuarters = aggregateFyQuarterRows(
-      (allPeriodRows ?? [])
-        .filter((r) => subtreeRepIntIds.includes(String(r.rep_int_id)))
-        .sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
+      fyInputRows.sort((a, b) => Number(a.fiscal_quarter) - Number(b.fiscal_quarter))
     );
     const annualQuota = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.quota, 0) : effectiveQuota * 4;
-    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + q.won_amount, 0) : effectiveWonAmount;
+    const ytdRevenue = fyQuarters.length ? fyQuarters.reduce((sum, q) => sum + (q.won_amount ?? 0), 0) : effectiveWonAmount;
     const ytdAttainPct = annualQuota > 0 ? Math.round((ytdRevenue / annualQuota) * 100) : 0;
     const attainPct = effectiveQuota > 0 ? Math.round((effectiveWonAmount / effectiveQuota) * 100) : 0;
     const paceStatus = calcPaceStatus(effectiveWonAmount, effectiveQuota, paceRatio);

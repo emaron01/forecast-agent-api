@@ -1192,6 +1192,10 @@ export async function loadChannelRepFyQuarterRows(args: {
       partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
     }
 
+    const perRepTerritoryIds = new Map<number, number[]>();
+    const allTerritoryIds = new Set<number>();
+    const overlayPartnerNames = new Set<string>();
+
     const metricsByRepPeriod = new Map<
       string,
       {
@@ -1215,6 +1219,13 @@ export async function loadChannelRepFyQuarterRows(args: {
         if (!territoryRepIds.length) return;
 
         const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
+        perRepTerritoryIds.set(repId, territoryRepIds);
+        for (const id of territoryRepIds) allTerritoryIds.add(id);
+        for (const pn of assignedPartnerNames) {
+          const key = String(pn || "").trim().toLowerCase();
+          if (key) overlayPartnerNames.add(key);
+        }
+
         const { rows } = await pool.query<{
           period_id: number;
           won_amount: number;
@@ -1285,6 +1296,88 @@ export async function loadChannelRepFyQuarterRows(args: {
       })
     );
 
+    // Deduped rollup across all channel rep scopes (used by leader cards).
+    // Deduped by opportunity id per quota period id.
+    const rollupTerritoryIds = Array.from(allTerritoryIds);
+    const rollupOverlayPartnerNames = Array.from(overlayPartnerNames);
+    const rollupRows = rollupTerritoryIds.length > 0 || rollupOverlayPartnerNames.length > 0
+      ? await pool
+          .query<{
+            period_id: number;
+            won_amount: number;
+            won_count: number;
+            lost_amount: number;
+            lost_count: number;
+            pipeline_amount: number;
+            active_count: number;
+          }>(
+            `
+            WITH qp AS (
+              SELECT
+                id,
+                period_start::date AS period_start,
+                period_end::date AS period_end
+              FROM quota_periods
+              WHERE org_id = $1::bigint
+                AND id = ANY($2::bigint[])
+            ),
+            all_deals AS (
+              SELECT DISTINCT ON (o.id, qp.id)
+                o.id,
+                qp.id AS period_id,
+                COALESCE(o.amount, 0)::float8 AS amount,
+                ${crmBucketCaseSql("o")} AS crm_bucket,
+                o.rep_id::bigint AS rep_id,
+                lower(btrim(COALESCE(o.partner_name, ''))) AS partner_name
+              FROM opportunities o
+              JOIN qp
+                ON ${parsedCloseDateSql("o")} IS NOT NULL
+               AND ${parsedCloseDateSql("o")} >= qp.period_start
+               AND ${parsedCloseDateSql("o")} <= qp.period_end
+              LEFT JOIN org_stage_mappings stm
+                ON stm.org_id = o.org_id
+               AND stm.field = 'stage'
+               AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+              LEFT JOIN org_stage_mappings fcm
+                ON fcm.org_id = o.org_id
+               AND fcm.field = 'forecast_category'
+               AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+              WHERE o.org_id = $1::bigint
+                AND o.partner_name IS NOT NULL
+                AND btrim(o.partner_name) <> ''
+                AND (
+                  (
+                    COALESCE(array_length($3::bigint[], 1), 0) > 0
+                    AND o.rep_id = ANY($3::bigint[])
+                  )
+                  OR (
+                    COALESCE(array_length($4::text[], 1), 0) > 0
+                    AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[])
+                    AND NOT (
+                      COALESCE(array_length($3::bigint[], 1), 0) > 0
+                      AND o.rep_id = ANY($3::bigint[])
+                    )
+                  )
+                )
+              ORDER BY o.id, qp.id
+            )
+            SELECT
+              period_id,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
+              COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won','lost','excluded') THEN amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+              COALESCE(SUM(CASE WHEN crm_bucket NOT IN ('won','lost','excluded') THEN 1 ELSE 0 END), 0)::int AS active_count
+            FROM all_deals
+            GROUP BY period_id
+            `,
+            [args.orgId, periodIds, rollupTerritoryIds, rollupOverlayPartnerNames]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+
     const out: ChannelRepFyQuarterRow[] = [];
     for (const rep of repScopeRows) {
       const repId = Number(rep.rep_id);
@@ -1314,6 +1407,32 @@ export async function loadChannelRepFyQuarterRows(args: {
           attainment: quota > 0 ? wonAmount / quota : null,
         });
       }
+    }
+
+    // Append leader rollup rows with a sentinel rep_int_id.
+    for (const period of periods) {
+      const periodId = Number(period.id);
+      if (!Number.isFinite(periodId) || periodId <= 0) continue;
+      const m = (rollupRows || []).find((r) => Number(r.period_id) === periodId) ?? null;
+      const wonAmount = m?.won_amount ?? 0;
+      out.push({
+        rep_id: "__DEDUPED_CHANNEL_ROLLUP__",
+        rep_int_id: "__DEDUPED_CHANNEL_ROLLUP__",
+        period_id: String(periodId),
+        period_name: cleanText(period.period_name),
+        fiscal_quarter: cleanText(period.fiscal_quarter),
+        won_amount: wonAmount,
+        won_count: m?.won_count ?? 0,
+        lost_amount: m?.lost_amount ?? 0,
+        lost_count: m?.lost_count ?? 0,
+        pipeline_amount: m?.pipeline_amount ?? 0,
+        active_count: m?.active_count ?? 0,
+        avg_days_won: null,
+        avg_days_lost: null,
+        avg_days_active: null,
+        quota: 0,
+        attainment: null,
+      });
     }
 
     return out.sort((a, b) => {
