@@ -3,6 +3,20 @@
  * Parameter numbers are explicit ($tr, $pn) for embedding in larger queries.
  */
 
+/** Partner-name scope: empty array means "any non-empty partner_name". */
+export function partnerScopeSql(rowAlias: string, parameterIndex: number) {
+  return `(
+    CASE
+      WHEN $${parameterIndex}::text[] = '{}'::text[]
+      THEN (
+        ${rowAlias}.partner_name IS NOT NULL
+        AND btrim(${rowAlias}.partner_name) <> ''
+      )
+      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
+    END
+  )`;
+}
+
 /** Single scope from getChannelTerritoryRepIds (partner vs territory mutually exclusive). */
 export function channelDealScopeWhereStrict(trDollar: number, pnDollar: number): string {
   return `

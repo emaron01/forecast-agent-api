@@ -4,6 +4,7 @@ import { pool } from "./pool";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import type { RepDirectoryRow } from "./repScope";
 import { crmBucketCaseSql as crmBucketCaseSqlExpr } from "./crmBucketCaseSql";
+import { partnerScopeSql } from "./channelDealScope";
 
 const LOG_PREFIX = "[getChannelDashboardSummary]";
 
@@ -216,19 +217,6 @@ function parsedCloseDateSql(rowAlias: string) {
       ELSE NULL
     END
   `.trim();
-}
-
-function partnerScopeSql(rowAlias: string, parameterIndex: number) {
-  return `(
-    CASE
-      WHEN $${parameterIndex}::text[] = '{}'::text[]
-      THEN (
-        ${rowAlias}.partner_name IS NOT NULL
-        AND btrim(${rowAlias}.partner_name) <> ''
-      )
-      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
-    END
-  )`;
 }
 
 function normalizePartnerNames(values: Array<string | null | undefined>) {

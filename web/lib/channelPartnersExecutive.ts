@@ -1,6 +1,7 @@
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
 import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
+import { channelDealScopeWhereStrict } from "./channelDealScope";
 
 type MotionStatsRow = {
   motion: PartnerDealMotion;
@@ -122,15 +123,7 @@ export async function loadChannelPartnersExecutive(args: {
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
-            AND (
-              (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) = 0
-                AND COALESCE(array_length($3::bigint[], 1), 0) > 0
-                AND o.rep_id IS NOT NULL
-                AND o.rep_id = ANY($3::bigint[])
-              )
-            )
+            ${channelDealScopeWhereStrict(3, 4)}
         ) base
         WHERE crm_bucket IN ('won', 'lost')
       )
@@ -197,15 +190,7 @@ export async function loadChannelPartnersExecutive(args: {
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
-            AND (
-              (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
-              OR (
-                COALESCE(array_length($4::text[], 1), 0) = 0
-                AND COALESCE(array_length($3::bigint[], 1), 0) > 0
-                AND o.rep_id IS NOT NULL
-                AND o.rep_id = ANY($3::bigint[])
-              )
-            )
+            ${channelDealScopeWhereStrict(3, 4)}
         ) base
         WHERE crm_bucket IN ('won', 'lost')
       )
@@ -259,15 +244,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
-          AND (
-            (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
-            OR (
-              COALESCE(array_length($4::text[], 1), 0) = 0
-              AND COALESCE(array_length($3::bigint[], 1), 0) > 0
-              AND o.rep_id IS NOT NULL
-              AND o.rep_id = ANY($3::bigint[])
-            )
-          )
+          ${channelDealScopeWhereStrict(3, 4)}
       )
       SELECT
         motion,
@@ -315,15 +292,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
-          AND (
-            (COALESCE(array_length($4::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($4::text[]))
-            OR (
-              COALESCE(array_length($4::text[], 1), 0) = 0
-              AND COALESCE(array_length($3::bigint[], 1), 0) > 0
-              AND o.rep_id IS NOT NULL
-              AND o.rep_id = ANY($3::bigint[])
-            )
-          )
+          ${channelDealScopeWhereStrict(3, 4)}
       )
       SELECT
         partner_name,

@@ -12,6 +12,7 @@ import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope
 import { getScopedRepDirectory } from "../../../../lib/repScope";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { isAdmin, isChannelRole } from "../../../../lib/roleHelpers";
+import { channelDealScopeWhereStrict } from "../../../../lib/channelDealScope";
 
 export const runtime = "nodejs";
 
@@ -206,17 +207,7 @@ export async function GET(req: Request) {
       params.push(partnerNames);
       const partnerNamesIdx = ++p;
       channelPartnerDollarIndex = partnerNamesIdx;
-      where.push(`o.partner_name IS NOT NULL`);
-      where.push(`btrim(o.partner_name) <> ''`);
-      where.push(`(
-        (COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($${partnerNamesIdx}::text[]))
-        OR (
-          COALESCE(array_length($${partnerNamesIdx}::text[], 1), 0) = 0
-          AND COALESCE(array_length($${territoryIdx}::bigint[], 1), 0) > 0
-          AND o.rep_id IS NOT NULL
-          AND o.rep_id = ANY($${territoryIdx}::bigint[])
-        )
-      )`);
+      where.push(channelDealScopeWhereStrict(territoryIdx, partnerNamesIdx));
     } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);
       where.push(`o.rep_id IS NOT NULL`);

@@ -2,6 +2,7 @@ import "server-only";
 
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
+import { partnerScopeSql } from "./channelDealScope";
 
 export type ChannelHeroTopPartnerDealRow = {
   opportunity_public_id: string;
@@ -16,19 +17,6 @@ export type ChannelHeroTopPartnerDealRow = {
   baseline_health_score: number | null;
   health_score: number | null;
 };
-
-function partnerScopeSql(rowAlias: string, parameterIndex: number) {
-  return `(
-    CASE
-      WHEN $${parameterIndex}::text[] = '{}'::text[]
-      THEN (
-        ${rowAlias}.partner_name IS NOT NULL
-        AND btrim(${rowAlias}.partner_name) <> ''
-      )
-      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
-    END
-  )`;
-}
 
 /** Top-deals query: $7 repIds, $8 partnerNames, $9 repLen, $10 partnerLen */
 function channelHeroOppScopeSqlTopDeals(alias: string): string {

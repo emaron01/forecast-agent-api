@@ -12,6 +12,7 @@ import {
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import { getQuotaByRepPeriod, getRepKpisByPeriod, type RepPeriodKpisRow } from "./executiveRepKpis";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
+import { partnerScopeSql } from "./channelDealScope";
 import { pool } from "./pool";
 import type { RepDirectoryRow } from "./repScope";
 import { HIERARCHY, isChannelRoleLevel } from "./roleHelpers";
@@ -201,19 +202,6 @@ export type ChannelLostDealRow = {
   /** Diagnostic only */
   close_date?: string | null;
 };
-
-function partnerScopeSql(rowAlias: string, parameterIndex: number) {
-  return `(
-    CASE
-      WHEN $${parameterIndex}::text[] = '{}'::text[]
-      THEN (
-        ${rowAlias}.partner_name IS NOT NULL
-        AND btrim(${rowAlias}.partner_name) <> ''
-      )
-      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
-    END
-  )`;
-}
 
 async function queryChannelLostDealsByScope(args: {
   orgId: number;

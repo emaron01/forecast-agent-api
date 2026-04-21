@@ -24,6 +24,7 @@ import { HIERARCHY, isChannelRep, isChannelRole, isSalesRep } from "../../../lib
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
 import { listTopPartnerDealsChannelHeroScope } from "../../../lib/channelHeroTopPartnerDeals";
+import { partnerScopeSql } from "../../../lib/channelDealScope";
 import { ChannelTopPartnerDealsTablesClient, type TopPartnerDealRow } from "./ChannelTopPartnerDealsTablesClient";
 import { ScopedDashboardTabsClient } from "../../components/dashboard/ScopedDashboardTabsClient";
 import { ChannelTabPanelClient } from "../../components/dashboard/ChannelTabPanelClient";
@@ -62,19 +63,6 @@ const CHANNEL_DASHBOARD_LEADER_TABS: ExecTabKey[] = [
 ];
 
 const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "channel_partners"];
-
-function partnerScopeSql(rowAlias: string, parameterIndex: number) {
-  return `(
-    CASE
-      WHEN $${parameterIndex}::text[] = '{}'::text[]
-      THEN (
-        ${rowAlias}.partner_name IS NOT NULL
-        AND btrim(${rowAlias}.partner_name) <> ''
-      )
-      ELSE lower(btrim(${rowAlias}.partner_name)) = ANY($${parameterIndex}::text[])
-    END
-  )`;
-}
 
 type ChannelLostDealRow = {
   id: string;
