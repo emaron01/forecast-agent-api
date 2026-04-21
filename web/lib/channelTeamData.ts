@@ -1196,6 +1196,7 @@ export async function buildChannelTeamPayload(
   let directorTerritoryLostCount = 0;
   let directorWonAmount = 0;
   let directorWonCount = 0;
+  let directorDealMaps: Map<number, Map<string, number>> | null = null;
   let lostDealsByRole8RepId = new Map<number, ChannelLostDealRow[]>();
   const territorySalesIdsByChannelRepId = new Map<number, Set<string>>();
 
@@ -1349,20 +1350,21 @@ export async function buildChannelTeamPayload(
 
         lostDealsByRole8RepId = new Map(lostResultList.map(({ rid, rows }) => [rid, rows]));
 
-        const directorDealMaps = new Map<number, Map<string, number>>();
+        const ddm = new Map<number, Map<string, number>>();
         for (const [rep8Id, deals] of lostDealsByRole8RepId) {
           const meta = repDirById.get(rep8Id);
           const mgrId = meta?.manager_rep_id;
           if (mgrId == null || !Number.isFinite(mgrId) || mgrId <= 0) continue;
-          let dm = directorDealMaps.get(mgrId);
+          let dm = ddm.get(mgrId);
           if (!dm) {
             dm = new Map();
-            directorDealMaps.set(mgrId, dm);
+            ddm.set(mgrId, dm);
           }
           for (const d of deals) {
             dm.set(String(d.id), Number(d.amount) || 0);
           }
         }
+        directorDealMaps = ddm;
 
         function sumDedupedChannelLost(m: Map<string, number>) {
           let amount = 0;
@@ -1377,7 +1379,7 @@ export async function buildChannelTeamPayload(
             : NaN;
 
         if (hl === HIERARCHY.CHANNEL_MANAGER && Number.isFinite(viewerRid) && viewerRid > 0) {
-          const m = directorDealMaps.get(viewerRid);
+          const m = ddm.get(viewerRid);
           if (m) {
             const s = sumDedupedChannelLost(m);
             directorTerritoryLostAmount = s.amount;
@@ -1389,7 +1391,7 @@ export async function buildChannelTeamPayload(
             if (Number(d.hierarchy_level) !== HIERARCHY.CHANNEL_MANAGER) continue;
             const execId = d.manager_rep_id == null ? NaN : Number(d.manager_rep_id);
             if (execId !== viewerRid) continue;
-            const sub = directorDealMaps.get(d.id);
+            const sub = ddm.get(d.id);
             if (!sub) continue;
             for (const [kid, amt] of sub) merged.set(kid, amt);
           }
@@ -1508,6 +1510,16 @@ export async function buildChannelTeamPayload(
     directorWonAmount,
     directorWonCount,
     repDirectoryForRollup: rollupDirectory,
+  });
+
+  console.error("[buildChannelTeamPayload] lost summary:", {
+    lostMapKeys: [...lostDealsByRole8RepId.keys()],
+    lostMapSizes: [...lostDealsByRole8RepId.entries()].map(([k, v]) => ({ repId: k, count: v.length })),
+    directorOverrides: [...(directorDealMaps?.entries() ?? [])].map(([k, v]) => ({
+      dirRepId: k,
+      lostCount: v.size,
+      lostAmount: [...v.values()].reduce((s, n) => s + n, 0),
+    })),
   });
 
   return {
