@@ -1164,6 +1164,15 @@ export async function loadChannelRepFyQuarterRows(args: {
       quotaByRepPeriod.set(`${repId}:${periodId}`, num(row.quota));
     }
 
+    const rollupQuotaByPeriod = new Map<number, number>();
+    for (const periodId of periodIds) {
+      let sum = 0;
+      for (const repId of args.channelRepIds) {
+        sum += quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+      }
+      rollupQuotaByPeriod.set(periodId, sum);
+    }
+
     const assignmentRows = await pool
       .query<{ channel_rep_id: number; partner_name: string | null }>(
         `
@@ -1410,11 +1419,18 @@ export async function loadChannelRepFyQuarterRows(args: {
     }
 
     // Append leader rollup rows with a sentinel rep_int_id.
+    const rollupByPeriodId = new Map<number, (typeof rollupRows)[number]>();
+    for (const r of rollupRows || []) {
+      const pid = Number(r.period_id);
+      if (!Number.isFinite(pid) || pid <= 0) continue;
+      rollupByPeriodId.set(pid, r);
+    }
     for (const period of periods) {
       const periodId = Number(period.id);
       if (!Number.isFinite(periodId) || periodId <= 0) continue;
-      const m = (rollupRows || []).find((r) => Number(r.period_id) === periodId) ?? null;
+      const m = rollupByPeriodId.get(periodId) ?? null;
       const wonAmount = m?.won_amount ?? 0;
+      const quota = rollupQuotaByPeriod.get(periodId) || 0;
       out.push({
         rep_id: "__DEDUPED_CHANNEL_ROLLUP__",
         rep_int_id: "__DEDUPED_CHANNEL_ROLLUP__",
@@ -1430,8 +1446,8 @@ export async function loadChannelRepFyQuarterRows(args: {
         avg_days_won: null,
         avg_days_lost: null,
         avg_days_active: null,
-        quota: 0,
-        attainment: null,
+        quota,
+        attainment: quota > 0 ? wonAmount / quota : null,
       });
     }
 
