@@ -1026,12 +1026,21 @@ export async function assembleChannelTeamLeaderboardFromState(
     channelTeamRepRows.map((row) => String(row.manager_id || "").trim()).filter(Boolean)
   ).size;
   const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
+  const viewerHierarchyLevel =
+    channelViewerRepId != null
+      ? (repDirectoryForRollup?.find((r) => Number(r.id) === Number(channelViewerRepId))?.hierarchy_level ??
+          channelSummary?.repDirectory?.find((r) => Number(r.id) === Number(channelViewerRepId))?.hierarchy_level ??
+          null)
+      : null;
+  const isVpExecLevel = Number(viewerHierarchyLevel) === HIERARCHY.CHANNEL_EXEC;
 
-  const applyWonOverride = directorWonAmount > 0 && !channelRollupMultiDirectorCards;
-  const applyLostOverride = directorTerritoryLostAmount > 0 && !channelRollupMultiDirectorCards;
+  const applyWonOverride = directorWonAmount > 0 && (isVpExecLevel || !channelRollupMultiDirectorCards);
+  const applyLostOverride = directorTerritoryLostAmount > 0 && (isVpExecLevel || !channelRollupMultiDirectorCards);
 
   console.error("[assembleChannelTeamLeaderboard] card override check:", {
     repId: channelViewerRepId,
+    viewerHierarchyLevel,
+    isVpExecLevel,
     directorWonAmount,
     directorTerritoryLostAmount,
     directorTerritoryLostCount,
