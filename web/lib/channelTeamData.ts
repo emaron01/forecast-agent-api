@@ -194,6 +194,12 @@ export type ChannelLostDealRow = {
   amount: number;
   rep_id: number;
   partner_name: string | null;
+  /** Diagnostic only */
+  sales_stage?: string | null;
+  /** Diagnostic only */
+  crm_bucket?: string | null;
+  /** Diagnostic only */
+  close_date?: string | null;
 };
 
 function partnerScopeSql(rowAlias: string, parameterIndex: number) {
@@ -216,12 +222,27 @@ async function queryChannelLostDealsByScope(args: {
   periodStart: string;
   periodEnd: string;
 }): Promise<ChannelLostDealRow[]> {
+  const orgId = Number(args.orgId);
+  const periodStart = String(args.periodStart || "").trim();
+  const periodEnd = String(args.periodEnd || "").trim();
+  const repIds = args.repIds || [];
   const repLen = args.repIds.length;
   const names = Array.from(
     new Set((args.partnerNames || []).map((n) => String(n || "").trim().toLowerCase()).filter(Boolean))
   );
   const partnerLen = names.length;
   if (repLen === 0 && partnerLen === 0) return [];
+
+  console.error("[queryChannelLostDealsByScope] args:", {
+    orgId,
+    periodStart,
+    periodEnd,
+    repIdsCount: repIds.length,
+    partnerNamesCount: names.length,
+    repIds,
+    partnerNames: names,
+  });
+
   const { rows } = await pool
     .query<ChannelLostDealRow>(
       `
@@ -229,7 +250,10 @@ async function queryChannelLostDealsByScope(args: {
         o.id::text AS id,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.rep_id::int AS rep_id,
-        o.partner_name
+        o.partner_name,
+        o.sales_stage::text AS sales_stage,
+        (${crmBucketCaseSql("o")})::text AS crm_bucket,
+        o.close_date::timestamptz::text AS close_date
       FROM opportunities o
       LEFT JOIN org_stage_mappings stm
         ON stm.org_id = o.org_id
@@ -266,9 +290,21 @@ async function queryChannelLostDealsByScope(args: {
         ) <= $5::date
         AND (${crmBucketCaseSql("o")}) IN ('lost', 'excluded')
       `,
-      [args.orgId, args.repIds, names, args.periodStart, args.periodEnd, repLen, partnerLen]
+      [orgId, repIds, names, periodStart, periodEnd, repLen, partnerLen]
     )
     .catch(() => ({ rows: [] as ChannelLostDealRow[] }));
+
+  console.error(
+    "[queryChannelLostDealsByScope] result rows:",
+    (rows || []).length,
+    (rows || []).map((r) => ({
+      sales_stage: (r as any).sales_stage ?? null,
+      crm_bucket: (r as any).crm_bucket ?? null,
+      amount: r.amount,
+      close_date: (r as any).close_date ?? null,
+    }))
+  );
+
   return rows || [];
 }
 
@@ -351,11 +387,21 @@ export async function loadDedupedChannelProductsForScope(args: {
   const pn = Array.from(new Set(args.allPartnerNames.map((s) => s.trim().toLowerCase()).filter(Boolean)));
   const partnerLen = pn.length;
 
+  console.error("[loadDedupedChannelProductsForScope] scope:", {
+    allTerritoryRepIdsCount: args.allTerritoryRepIds.length,
+    allPartnerNamesCount: args.allPartnerNames.length,
+    allPartnerNames: args.allPartnerNames,
+  });
+
   const { rows } = await pool.query<{
     product: string;
     won_amount: number;
     won_count: number;
     avg_health_score: number | null;
+    /** Diagnostic only */
+    rep_ids?: Array<number | null> | null;
+    /** Diagnostic only */
+    partner_names?: Array<string | null> | null;
   }>(
     `
     WITH qp AS (
@@ -369,7 +415,9 @@ export async function loadDedupedChannelProductsForScope(args: {
         o.id,
         COALESCE(NULLIF(btrim(o.product), ''), '(Unspecified)') AS product,
         COALESCE(o.amount, 0)::float8 AS amount,
-        o.health_score
+        o.health_score,
+        o.rep_id::bigint AS rep_id,
+        o.partner_name::text AS partner_name
       FROM opportunities o
       LEFT JOIN org_stage_mappings stm
         ON stm.org_id = o.org_id
@@ -400,7 +448,9 @@ export async function loadDedupedChannelProductsForScope(args: {
       product,
       SUM(amount)::float8 AS won_amount,
       COUNT(*)::int AS won_count,
-      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score
+      AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
+      ARRAY_AGG(DISTINCT rep_id)::bigint[] AS rep_ids,
+      ARRAY_AGG(DISTINCT partner_name)::text[] AS partner_names
     FROM won_deals
     GROUP BY product
     ORDER BY won_amount DESC
@@ -408,6 +458,18 @@ export async function loadDedupedChannelProductsForScope(args: {
     `,
     [args.orgId, args.quotaPeriodId, args.allTerritoryRepIds, pn, Number(repLen), Number(partnerLen)]
   );
+
+  console.error(
+    "[loadDedupedChannelProductsForScope] rows returned:",
+    (rows || []).length,
+    (rows || []).map((r) => ({
+      product: r.product,
+      won_amount: r.won_amount,
+      rep_id: Array.isArray(r.rep_ids) ? (r.rep_ids.filter((x) => x != null)[0] ?? null) : null,
+      partner_name: Array.isArray(r.partner_names) ? (r.partner_names.filter(Boolean)[0] ?? null) : null,
+    }))
+  );
+
   return (rows || []).map((r) => ({
     product: r.product,
     won_amount: Number(r.won_amount || 0) || 0,

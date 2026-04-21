@@ -359,8 +359,8 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
   const repLen = repIds.length;
   const partnerLen = partnerNames.length;
   if (repLen === 0 && partnerLen === 0) return emptyStage;
-  const { rows } = await pool
-    .query<StageSnap>(
+  try {
+    const { rows } = await pool.query<StageSnap>(
       `
       WITH qp AS (
         SELECT period_start::date AS period_start, period_end::date AS period_end
@@ -458,10 +458,18 @@ async function loadPartnerPipelineStage(orgId: number, qpId: string, repIds: num
       FROM classified
       `,
       [orgId, qpId, repIds, partnerNames, repLen, partnerLen]
-    )
-    .catch(() => ({ rows: [] }));
-
-  return (rows?.[0] as StageSnap) || emptyStage;
+    );
+    const result = (rows?.[0] as StageSnap) || emptyStage;
+    console.error("[loadPartnerPipelineStage] result:", {
+      lost_count: (result as any).lost_count,
+      lost_amount: (result as any).lost_amount,
+      lost_avg_health_score: (result as any).lost_avg_health_score,
+    });
+    return result;
+  } catch (e) {
+    console.error("[loadPartnerPipelineStage] error:", e);
+    return emptyStage;
+  }
 }
 
 type ProductWonRow = {
@@ -778,27 +786,35 @@ export async function loadChannelPartnerHeroProps(args: {
         }
       : null;
 
+  const crmForecast = {
+    commit_amount: Number(totals.commit_amount || 0) || 0,
+    best_case_amount: Number(totals.best_case_amount || 0) || 0,
+    pipeline_amount: Number(totals.pipeline_amount || 0) || 0,
+    won_amount: Number(totals.won_amount || 0) || 0,
+    won_count: Number(curStage?.won_count ?? 0) || 0,
+    lost_amount: Number(curStage?.lost_amount ?? 0) || 0,
+    lost_count: Number(curStage?.lost_count ?? 0) || 0,
+    lost_avg_health_score:
+      curStage?.lost_avg_health_score == null || !Number.isFinite(Number(curStage.lost_avg_health_score))
+        ? (curStage?.lost_count ?? 0) > 0
+          ? 0
+          : null
+        : Number(curStage.lost_avg_health_score),
+    weighted_forecast: weightedCrm,
+  };
+
+  console.error("[loadChannelPartnerHeroProps] crmForecast lost:", {
+    lost_count: crmForecast.lost_count,
+    lost_amount: crmForecast.lost_amount,
+    lost_avg_health_score: crmForecast.lost_avg_health_score,
+  });
+
   return {
     quarterKpis,
     productsClosedWon,
     productsClosedWonPrevSummary,
     pipelineMomentum,
-    crmForecast: {
-      commit_amount: Number(totals.commit_amount || 0) || 0,
-      best_case_amount: Number(totals.best_case_amount || 0) || 0,
-      pipeline_amount: Number(totals.pipeline_amount || 0) || 0,
-      won_amount: Number(totals.won_amount || 0) || 0,
-      won_count: Number(curStage?.won_count ?? 0) || 0,
-      lost_amount: Number(curStage?.lost_amount ?? 0) || 0,
-      lost_count: Number(curStage?.lost_count ?? 0) || 0,
-      lost_avg_health_score:
-        curStage?.lost_avg_health_score == null || !Number.isFinite(Number(curStage.lost_avg_health_score))
-          ? (curStage?.lost_count ?? 0) > 0
-            ? 0
-            : null
-          : Number(curStage.lost_avg_health_score),
-      weighted_forecast: weightedCrm,
-    },
+    crmForecast,
     aiForecast: weightedAi,
     crmForecastWeighted: weightedCrm,
     quota,
