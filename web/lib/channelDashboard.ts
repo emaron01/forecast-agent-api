@@ -1152,15 +1152,6 @@ export async function loadChannelRepFyQuarterRows(args: {
       quotaByRepPeriod.set(`${repId}:${periodId}`, num(row.quota));
     }
 
-    const rollupQuotaByPeriod = new Map<number, number>();
-    for (const periodId of periodIds) {
-      let sum = 0;
-      for (const repId of args.channelRepIds) {
-        sum += quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
-      }
-      rollupQuotaByPeriod.set(periodId, sum);
-    }
-
     const assignmentRows = await pool
       .query<{ channel_rep_id: number; partner_name: string | null }>(
         `
@@ -1189,9 +1180,82 @@ export async function loadChannelRepFyQuarterRows(args: {
       partnerNamesByUserId.set(userId, Array.from(new Set(values.filter(Boolean))));
     }
 
-    const perRepTerritoryIds = new Map<number, number[]>();
+    const territoryRepIdsByChannelRepId = new Map<number, number[]>();
+    const assignedPartnerNamesByRepId = new Map<number, string[]>();
+
+    await Promise.all(
+      repScopeRows.map(async (row) => {
+        const repId = Number(row.rep_id);
+        const userId = Number(row.user_id);
+        const territoryScope = await getChannelTerritoryRepIds({
+          orgId: args.orgId,
+          channelUserId: userId,
+        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
+        const territoryRepIds = (territoryScope.repIds || [])
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+        territoryRepIdsByChannelRepId.set(repId, territoryRepIds);
+        assignedPartnerNamesByRepId.set(repId, partnerNamesByUserId.get(userId) || []);
+      })
+    );
+
+    const territoryAlignedRepIds: number[] = [];
+    const overlayRepIds: number[] = [];
+    for (const row of repScopeRows) {
+      const repId = Number(row.rep_id);
+      if (!Number.isFinite(repId) || repId <= 0) continue;
+      const pn = assignedPartnerNamesByRepId.get(repId) ?? [];
+      if (pn.length === 0) territoryAlignedRepIds.push(repId);
+      else overlayRepIds.push(repId);
+    }
+
+    const allTerritoryRepIdsCoveredByAligned = new Set<number>();
+    for (const repId of territoryAlignedRepIds) {
+      for (const id of territoryRepIdsByChannelRepId.get(repId) ?? []) {
+        allTerritoryRepIdsCoveredByAligned.add(id);
+      }
+    }
+
+    const rollupQuotaByPeriod = new Map<number, number>();
+    const scopeRepIdSet = new Set(repScopeRows.map((r) => Number(r.rep_id)));
+    for (const periodId of periodIds) {
+      let sum = 0;
+      for (const repId of territoryAlignedRepIds) {
+        sum += quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+      }
+      if (territoryAlignedRepIds.length === 0) {
+        for (const repId of overlayRepIds) {
+          sum += quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+        }
+      } else {
+        for (const repId of overlayRepIds) {
+          const territory = territoryRepIdsByChannelRepId.get(repId) ?? [];
+          const repQuota = quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+          if (territory.length === 0) continue;
+          const uncovered = territory.filter((id) => !allTerritoryRepIdsCoveredByAligned.has(id));
+          if (uncovered.length === 0) continue;
+          sum += repQuota * (uncovered.length / territory.length);
+        }
+      }
+      for (const repId of args.channelRepIds) {
+        if (scopeRepIdSet.has(repId)) continue;
+        sum += quotaByRepPeriod.get(`${repId}:${periodId}`) || 0;
+      }
+      rollupQuotaByPeriod.set(periodId, sum);
+    }
+
     const allTerritoryIds = new Set<number>();
     const overlayPartnerNames = new Set<string>();
+    for (const row of repScopeRows) {
+      const repId = Number(row.rep_id);
+      for (const id of territoryRepIdsByChannelRepId.get(repId) ?? []) {
+        allTerritoryIds.add(id);
+      }
+      for (const pn of assignedPartnerNamesByRepId.get(repId) ?? []) {
+        const key = String(pn || "").trim().toLowerCase();
+        if (key) overlayPartnerNames.add(key);
+      }
+    }
 
     const metricsByRepPeriod = new Map<
       string,
@@ -1207,21 +1271,10 @@ export async function loadChannelRepFyQuarterRows(args: {
     await Promise.all(
       repScopeRows.map(async (row) => {
         const repId = Number(row.rep_id);
-        const userId = Number(row.user_id);
-        const territoryScope = await getChannelTerritoryRepIds({
-          orgId: args.orgId,
-          channelUserId: userId,
-        }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }));
-        const territoryRepIds = territoryScope.repIds;
+        const territoryRepIds = territoryRepIdsByChannelRepId.get(repId) ?? [];
         if (!territoryRepIds.length) return;
 
-        const assignedPartnerNames = partnerNamesByUserId.get(userId) || [];
-        perRepTerritoryIds.set(repId, territoryRepIds);
-        for (const id of territoryRepIds) allTerritoryIds.add(id);
-        for (const pn of assignedPartnerNames) {
-          const key = String(pn || "").trim().toLowerCase();
-          if (key) overlayPartnerNames.add(key);
-        }
+        const assignedPartnerNames = assignedPartnerNamesByRepId.get(repId) ?? [];
 
         const { rows } = await pool.query<{
           period_id: number;

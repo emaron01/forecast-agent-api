@@ -696,8 +696,12 @@ export async function assembleChannelTeamLeaderboardFromState(
   const channelRepDirectory = channelSummary?.repDirectory ?? [];
   const channelDirectorRepIdByChannelRepId = new Map<number, number>();
   const repDisplayNameByRepId = new Map<number, string>();
+  const userIdByRepIdFromDirectory = new Map<number, number>();
   for (const d of channelRepDirectory) {
     repDisplayNameByRepId.set(d.id, String(d.name || "").trim() || `(Rep ${d.id})`);
+    if (d.user_id != null && Number.isFinite(Number(d.user_id)) && Number(d.user_id) > 0) {
+      userIdByRepIdFromDirectory.set(d.id, Number(d.user_id));
+    }
     if (Number(d.hierarchy_level) === HIERARCHY.CHANNEL_REP && d.manager_rep_id != null) {
       const mid = Number(d.manager_rep_id);
       if (Number.isFinite(mid) && mid > 0) channelDirectorRepIdByChannelRepId.set(d.id, mid);
@@ -793,6 +797,88 @@ export async function assembleChannelTeamLeaderboardFromState(
     };
   });
 
+  const repIdsForQuotaDedupe = Array.from(
+    new Set(channelTeamRepRows.map((row) => Number(row.rep_id)).filter((id) => Number.isFinite(id) && id > 0))
+  );
+  const partnerNamesByUserIdAgg = new Map<number, string[]>();
+  const assignUserIds = Array.from(
+    new Set(
+      repIdsForQuotaDedupe
+        .map((rid) => userIdByRepIdFromDirectory.get(rid))
+        .filter((u): u is number => u != null && Number.isFinite(u) && u > 0)
+    )
+  );
+  if (assignUserIds.length > 0) {
+    const { rows: assignRows } = await pool
+      .query<{ channel_rep_id: number; partner_name: string | null }>(
+        `
+        SELECT
+          channel_rep_id,
+          lower(btrim(partner_name)) AS partner_name
+        FROM partner_channel_assignments
+        WHERE org_id = $1::bigint
+          AND channel_rep_id = ANY($2::int[])
+        `,
+        [orgId, assignUserIds]
+      )
+      .catch(() => ({ rows: [] as { channel_rep_id: number; partner_name: string | null }[] }));
+    for (const row of assignRows || []) {
+      const uid = Number(row.channel_rep_id);
+      if (!Number.isFinite(uid) || uid <= 0) continue;
+      const pn = String(row.partner_name || "")
+        .trim()
+        .toLowerCase();
+      const cur = partnerNamesByUserIdAgg.get(uid) || [];
+      if (pn) cur.push(pn);
+      partnerNamesByUserIdAgg.set(uid, cur);
+    }
+    for (const [uid, names] of partnerNamesByUserIdAgg.entries()) {
+      partnerNamesByUserIdAgg.set(uid, Array.from(new Set(names.filter(Boolean))));
+    }
+  }
+
+  const assignedPartnerNamesByRepIdAgg = new Map<number, string[]>();
+  for (const rid of repIdsForQuotaDedupe) {
+    const uNum = userIdByRepIdFromDirectory.get(rid) ?? 0;
+    assignedPartnerNamesByRepIdAgg.set(rid, uNum > 0 ? partnerNamesByUserIdAgg.get(uNum) || [] : []);
+  }
+
+  const territoryNumsForRepRollup = (repId: number): number[] => {
+    const s = territorySalesIdsByChannelRepId.get(repId);
+    if (!s) return [];
+    const out: number[] = [];
+    for (const id of s) {
+      const n = Number(id);
+      if (Number.isFinite(n) && n > 0) out.push(n);
+    }
+    return out;
+  };
+
+  const territoryAlignedRepIdsRoll = repIdsForQuotaDedupe.filter(
+    (rid) => (assignedPartnerNamesByRepIdAgg.get(rid) ?? []).length === 0
+  );
+  const overlayRepIdsRoll = repIdsForQuotaDedupe.filter(
+    (rid) => (assignedPartnerNamesByRepIdAgg.get(rid) ?? []).length > 0
+  );
+  const allTerritoryRepIdsCoveredRoll = new Set<number>();
+  for (const rid of territoryAlignedRepIdsRoll) {
+    for (const tid of territoryNumsForRepRollup(rid)) {
+      allTerritoryRepIdsCoveredRoll.add(tid);
+    }
+  }
+
+  const dedupedQuotaRollupContribution = (repId: number, rawQuota: number): number => {
+    const q = Number(rawQuota) || 0;
+    const assigned = assignedPartnerNamesByRepIdAgg.get(repId) ?? [];
+    if (assigned.length === 0) return q;
+    if (territoryAlignedRepIdsRoll.length === 0) return q;
+    const territory = territoryNumsForRepRollup(repId);
+    if (territory.length === 0) return 0;
+    const uncovered = territory.filter((id) => !allTerritoryRepIdsCoveredRoll.has(id));
+    if (uncovered.length === 0) return 0;
+    return q * (uncovered.length / territory.length);
+  };
+
   const channelDirectorManagerRows: RepManagerManagerRow[] =
     channelTeamRepRows.length > 0
       ? (() => {
@@ -801,7 +887,7 @@ export async function assembleChannelTeamLeaderboardFromState(
             const mid = String(row.manager_id || "").trim();
             const key = mid || "__unassigned__";
             const prev = agg.get(key) || { quota: 0, won_amount: 0, active_amount: 0, manager_name: row.manager_name };
-            prev.quota += Number(row.quota) || 0;
+            prev.quota += dedupedQuotaRollupContribution(Number(row.rep_id), Number(row.quota) || 0);
             prev.won_amount += Number(row.won_amount) || 0;
             prev.active_amount += Number(row.pipeline_amount) || 0;
             if (mid && row.manager_name) prev.manager_name = row.manager_name;
@@ -941,16 +1027,18 @@ export async function assembleChannelTeamLeaderboardFromState(
   ).size;
   const channelRollupMultiDirectorCards = channelDirectorCardCount > 1;
 
-  const applyOverrides = directorWonAmount > 0 || directorTerritoryLostAmount > 0;
+  const applyWonOverride = directorWonAmount > 0 && !channelRollupMultiDirectorCards;
+  const applyLostOverride = directorTerritoryLostAmount > 0 && !channelRollupMultiDirectorCards;
 
   console.error("[assembleChannelTeamLeaderboard] card override check:", {
     repId: channelViewerRepId,
     directorWonAmount,
     directorTerritoryLostAmount,
     directorTerritoryLostCount,
-    applyOverrides,
     channelRollupMultiDirectorCards,
-    managerLostAmountOverride: applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostAmount : undefined,
+    applyWonOverride,
+    applyLostOverride,
+    managerLostAmountOverride: applyLostOverride ? directorTerritoryLostAmount : undefined,
   });
 
   return {
@@ -959,13 +1047,13 @@ export async function assembleChannelTeamLeaderboardFromState(
     channelFyQuarterRows,
     channelViewerRepId,
     managerLostAmountOverride:
-      applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostAmount : undefined,
+      applyLostOverride ? directorTerritoryLostAmount : undefined,
     managerLostCountOverride:
-      applyOverrides && !channelRollupMultiDirectorCards ? directorTerritoryLostCount : undefined,
+      applyLostOverride ? directorTerritoryLostCount : undefined,
     managerWonAmountOverride:
-      applyOverrides && !channelRollupMultiDirectorCards ? directorWonAmount : undefined,
+      applyWonOverride ? directorWonAmount : undefined,
     managerWonCountOverride:
-      applyOverrides && !channelRollupMultiDirectorCards ? directorWonCount : undefined,
+      applyWonOverride ? directorWonCount : undefined,
   };
 }
 
