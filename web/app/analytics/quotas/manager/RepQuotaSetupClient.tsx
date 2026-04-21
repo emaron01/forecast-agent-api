@@ -9,6 +9,8 @@ export function RepQuotaSetupClient(props: {
   fiscalYear: string;
   repPublicId: string;
   repName: string;
+  /** Defaults to "Save and next rep". */
+  submitButtonLabel?: string;
   initialAnnualQuota: number | null;
   quarters: Array<{
     key: QuarterKey;
@@ -197,7 +199,7 @@ export function RepQuotaSetupClient(props: {
           disabled={exceedsAnnual}
           title={exceedsAnnual ? "Quarter totals must be ≤ annual quota" : ""}
         >
-          Save and next rep
+          {props.submitButtonLabel ?? "Save and next rep"}
         </button>
       </div>
     </form>
