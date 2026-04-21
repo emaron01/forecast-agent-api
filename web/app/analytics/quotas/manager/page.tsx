@@ -234,6 +234,7 @@ async function upsertRepQuota(args: {
     ON CONFLICT (org_id, rep_id, quota_period_id)
     DO UPDATE SET
       quota_amount = EXCLUDED.quota_amount,
+      annual_target = EXCLUDED.annual_target,
       is_manual = EXCLUDED.is_manual,
       updated_at = NOW()
     `,
@@ -416,6 +417,34 @@ async function saveRepQuotasForYearAction(formData: FormData) {
       annualTarget,
       isManual: quotaIsManual,
     });
+  }
+
+  if (
+    (isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&
+    channelLeaderOwnRepId != null &&
+    repId !== channelLeaderOwnRepId
+  ) {
+    const leaderQuotaRows = await listRepQuotasByPeriodIds({
+      orgId: ctx.user.org_id,
+      repId: channelLeaderOwnRepId,
+      quotaPeriodIds: quarterAssignments.map((qa) => qa.quota_period_id),
+    }).catch(() => []);
+    const leaderHasQuota =
+      leaderQuotaRows.some((q) => Number((q as any).annual_target || 0) > 0) ||
+      leaderQuotaRows.some((q) => Number(q.quota_amount || 0) > 0);
+    if (leaderHasQuota) {
+      await pool.query(
+        `
+        UPDATE quotas
+           SET is_manual = true,
+               updated_at = NOW()
+         WHERE org_id = $1::bigint
+           AND rep_id = $2::bigint
+           AND quota_period_id = ANY($3::bigint[])
+        `,
+        [ctx.user.org_id, channelLeaderOwnRepId, quarterAssignments.map((qa) => qa.quota_period_id)]
+      );
+    }
   }
 
   await syncManagerQuotas({ orgId: ctx.user.org_id, startRepId: repId }).catch(() => null);
