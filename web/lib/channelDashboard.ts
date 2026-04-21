@@ -1489,6 +1489,18 @@ async function loadRepDirectory(args: {
   try {
     const { rows } = await pool.query<RepDirectoryRow>(
       `
+      WITH input_ids AS (
+        SELECT DISTINCT unnest($2::bigint[])::bigint AS id
+      ),
+      expanded_ids AS (
+        SELECT id FROM input_ids
+        UNION
+        SELECT DISTINCT r.manager_rep_id::bigint AS id
+          FROM reps r
+          JOIN input_ids i ON i.id = r.id
+         WHERE r.manager_rep_id IS NOT NULL
+           AND r.manager_rep_id > 0
+      )
       SELECT
         r.id,
         COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), '(Unnamed)') AS name,
@@ -1497,12 +1509,13 @@ async function loadRepDirectory(args: {
         r.manager_rep_id,
         r.user_id,
         r.active
-      FROM reps r
+      FROM expanded_ids e
+      JOIN reps r
+        ON r.id = e.id
+       AND r.organization_id = $1::bigint
       LEFT JOIN users u
         ON u.org_id = $1::bigint
        AND u.id = r.user_id
-      WHERE r.organization_id = $1::bigint
-        AND r.id = ANY($2::bigint[])
       ORDER BY COALESCE(u.hierarchy_level, 99) ASC, name ASC, r.id ASC
       `,
       [args.orgId, repIds]
