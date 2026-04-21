@@ -1396,6 +1396,20 @@ export async function buildChannelTeamPayload(
             directorTerritoryLostCount = s.count;
           }
         } else if (hl === HIERARCHY.CHANNEL_EXEC && Number.isFinite(viewerRid) && viewerRid > 0) {
+          console.error("[buildChannelTeamPayload] VP override computation:", {
+            vpRepId: viewerRid,
+            directorMapKeys: [...ddm.keys()],
+            directorMapEntries: [...ddm.entries()].map(([dirRepId, dealMap]) => {
+              const meta = repDirById.get(dirRepId);
+              return {
+                dirRepId,
+                manager_rep_id: meta?.manager_rep_id,
+                matchesVP: meta?.manager_rep_id === viewerRid,
+                dealCount: dealMap.size,
+                dealAmount: [...dealMap.values()].reduce((s, n) => s + n, 0),
+              };
+            }),
+          });
           const merged = new Map<string, number>();
           for (const d of channelSummary?.repDirectory ?? []) {
             if (Number(d.hierarchy_level) !== HIERARCHY.CHANNEL_MANAGER) continue;
