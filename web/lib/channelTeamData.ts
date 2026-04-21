@@ -246,9 +246,25 @@ async function queryChannelLostDealsByScope(args: {
           ($6::int > 0 AND o.rep_id = ANY($2::bigint[]))
           OR ($7::int > 0 AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($3::text[]))
         )
-        AND o.close_date >= $4::date
-        AND o.close_date <= $5::date
-        AND (${crmBucketCaseSql("o")}) = 'lost'
+        AND (
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END
+        ) >= $4::date
+        AND (
+          CASE
+            WHEN o.close_date IS NULL THEN NULL
+            WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+            WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+              to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')
+            ELSE NULL
+          END
+        ) <= $5::date
+        AND (${crmBucketCaseSql("o")}) IN ('lost', 'excluded')
       `,
       [args.orgId, args.repIds, names, args.periodStart, args.periodEnd, repLen, partnerLen]
     )

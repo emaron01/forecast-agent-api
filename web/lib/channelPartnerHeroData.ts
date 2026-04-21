@@ -792,7 +792,9 @@ export async function loadChannelPartnerHeroProps(args: {
       lost_count: Number(curStage?.lost_count ?? 0) || 0,
       lost_avg_health_score:
         curStage?.lost_avg_health_score == null || !Number.isFinite(Number(curStage.lost_avg_health_score))
-          ? null
+          ? (curStage?.lost_count ?? 0) > 0
+            ? 0
+            : null
           : Number(curStage.lost_avg_health_score),
       weighted_forecast: weightedCrm,
     },

@@ -177,7 +177,7 @@ async function getRepKpisByPeriods(args: {
       SELECT
         *,
         (crm_bucket = 'won') AS is_won,
-        (crm_bucket = 'lost') AS is_lost,
+        (crm_bucket IN ('lost', 'excluded')) AS is_lost,
         (crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
         (${partnerMotionBarePredicatesSql.isPartnerSourced}) AS motion_sourced,
         (${partnerMotionBarePredicatesSql.isPartnerInfluenced}) AS motion_influenced,
@@ -474,8 +474,8 @@ async function getCreatedPipelineByRepByPeriods(args: {
       COALESCE(SUM(CASE WHEN NOT closed_in_qtr AND crm_bucket = 'pipeline' THEN 1 ELSE 0 END), 0)::int AS pipeline_count,
       COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'won' THEN amount ELSE 0 END), 0)::float8 AS won_amount,
       COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'lost' THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
-      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket IN ('lost', 'excluded') THEN amount ELSE 0 END), 0)::float8 AS lost_amount,
+      COALESCE(SUM(CASE WHEN closed_in_qtr AND crm_bucket IN ('lost', 'excluded') THEN 1 ELSE 0 END), 0)::int AS lost_count
     FROM classified
     GROUP BY
       quota_period_id,
