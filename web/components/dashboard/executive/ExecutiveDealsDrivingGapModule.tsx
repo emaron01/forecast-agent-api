@@ -292,17 +292,6 @@ export function ExecutiveDealsDrivingGapModule(props: {
                           {d.commit_whats_missing || d.verdict_note}
                         </div>
                       ) : null}
-                      {(d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") &&
-                      (d.commit_admission_status === "not_admitted" || d.commit_admission_status === "needs_review" || d.commit_whats_missing) &&
-                      !props.hideMatthewLinks ? (
-                        <Link
-                          href={`/opportunities/${encodeURIComponent(d.id)}/deal-review?category=paper&prefill=${encodeURIComponent("Who (legal/procurement contact): \nWhat artifact (PO, MSA, redlines): \nWhen (date / next milestone): \nCurrent status (e.g., procurement cutting PO): ")}`}
-                          className="mt-1 inline-block rounded border border-[#F1C40F]/60 bg-[#F1C40F]/10 px-2 py-0.5 text-[11px] font-semibold text-[#F1C40F] hover:bg-[#F1C40F]/20"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Capture Paper Process
-                        </Link>
-                      ) : null}
                     </div>
                     <div className="px-2 py-2 text-meta truncate" title={dealPartnerName(d) !== "—" ? dealPartnerName(d) : undefined}>
                       {dealPartnerName(d)}
