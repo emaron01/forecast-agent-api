@@ -210,7 +210,7 @@ export default async function UsersPage({
       user.hierarchy_level === 6 ||
       user.hierarchy_level === 7 ||
       (user.hierarchy_level === 0 && !!user.admin_has_full_analytics_access))
-      ? user.hierarchy_level === 6 || user.hierarchy_level === 7
+      ? user.hierarchy_level === 6 || user.hierarchy_level === 7 || (user.hierarchy_level === 0 && !!user.admin_has_full_analytics_access)
         ? await listDirectReportUserIds({ orgId, managerUserId: user.id }).catch(() => [])
         : await listManagerVisibility({ orgId, managerUserId: user.id }).catch(() => [])
       : [];
