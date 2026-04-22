@@ -93,6 +93,8 @@ export function HubspotIntegrationClient(props: {
   savedMappings: SavedMap[];
 }) {
   const [connection, setConnection] = useState<Conn>(props.connection);
+  const [connectedAtText, setConnectedAtText] = useState("—");
+  const [lastSyncedAtText, setLastSyncedAtText] = useState("—");
   const [mappingsComplete, setMappingsComplete] = useState(props.mappingsComplete);
   const [initialSyncComplete, setInitialSyncComplete] = useState(props.initialSyncComplete);
   const [properties, setProperties] = useState<Array<{ name: string; label: string; type: string; fieldType?: string }>>([]);
@@ -125,6 +127,11 @@ export function HubspotIntegrationClient(props: {
     setConnection(props.connection);
     setWriteback(!!props.connection?.writeback_enabled);
   }, [props.connection]);
+
+  useEffect(() => {
+    setConnectedAtText(connection?.connected_at ? new Date(connection.connected_at).toLocaleString() : "—");
+    setLastSyncedAtText(connection?.last_synced_at ? new Date(connection.last_synced_at).toLocaleString() : "—");
+  }, [connection?.connected_at, connection?.last_synced_at]);
 
   useEffect(() => {
     setMappingsComplete(props.mappingsComplete);
@@ -545,7 +552,7 @@ export function HubspotIntegrationClient(props: {
               HubSpot plan: <span className="text-[color:var(--sf-text-primary)]">{hubTierDisplayLabel(connection.hub_tier)}</span>
             </div>
             <div className="text-[color:var(--sf-text-secondary)]">
-              Connected {connection.connected_at ? new Date(connection.connected_at).toLocaleString() : "—"}
+              Connected {connectedAtText}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -740,7 +747,7 @@ export function HubspotIntegrationClient(props: {
                 {syncStatus?.error_text ? <span className="ml-2 text-[#E74C3C]">{syncStatus.error_text}</span> : null}
               </div>
             )}
-            <div>Last sync: {connection?.last_synced_at ? new Date(connection.last_synced_at).toLocaleString() : "—"}</div>
+            <div>Last sync: {lastSyncedAtText}</div>
             <button
               type="button"
               disabled={busy}
