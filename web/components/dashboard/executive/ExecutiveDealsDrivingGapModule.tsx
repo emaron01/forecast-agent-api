@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MEDDPICC_CANONICAL } from "../../../lib/meddpiccCanonical";
 
 type RiskCategoryKey =
@@ -149,10 +150,17 @@ export function ExecutiveDealsDrivingGapModule(props: {
   deals: ExecutiveGapDeal[];
   /** Channel roles (6/7/8): hide links into Matthew / deal-review. */
   hideMatthewLinks?: boolean;
+  showRequestReview?: boolean;
 }) {
+  const router = useRouter();
   const deals = props.deals || [];
   const [expandedDealId, setExpandedDealId] = useState<string>("");
   const [expandedCat, setExpandedCat] = useState<Record<string, string>>({});
+  const [requestingDealId, setRequestingDealId] = useState<string>("");
+  const [requestNote, setRequestNote] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+  const [requestError, setRequestError] = useState(false);
+  const requestComposerRef = useRef<HTMLDivElement | null>(null);
 
   const dealById = useMemo(() => {
     const m = new Map<string, ExecutiveGapDeal>();
@@ -163,6 +171,61 @@ export function ExecutiveDealsDrivingGapModule(props: {
   useEffect(() => {
     if (expandedDealId && !dealById.has(expandedDealId)) setExpandedDealId("");
   }, [expandedDealId, dealById]);
+
+  useEffect(() => {
+    if (requestingDealId && !dealById.has(requestingDealId)) {
+      setRequestingDealId("");
+      setRequestNote("");
+      setRequestError(false);
+    }
+  }, [dealById, requestingDealId]);
+
+  useLayoutEffect(() => {
+    if (!requestingDealId) return;
+    requestAnimationFrame(() => {
+      requestComposerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [requestingDealId]);
+
+  function openRequestComposer(dealId: string) {
+    setExpandedDealId(dealId);
+    setRequestingDealId(dealId);
+    setRequestNote("");
+    setRequestError(false);
+  }
+
+  function cancelRequestComposer() {
+    setRequestingDealId("");
+    setRequestNote("");
+    setRequestError(false);
+  }
+
+  async function sendRequestReview(dealId: string) {
+    setRequestSubmitting(true);
+    setRequestError(false);
+    try {
+      const res = await fetch("/api/coaching/request-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opportunityId: dealId,
+          note: requestNote.trim(),
+        }),
+      });
+      if (!res.ok) {
+        setRequestError(true);
+        return;
+      }
+      setRequestingDealId("");
+      setRequestNote("");
+      setExpandedDealId("");
+      router.refresh();
+    } catch {
+      setRequestError(true);
+    } finally {
+      setRequestSubmitting(false);
+    }
+  }
 
   return (
     <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
@@ -196,6 +259,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
             deals.map((d) => {
               const id = String(d.id);
               const open = expandedDealId === id;
+              const requestOpen = requestingDealId === id;
               const tone = riskToneForDeal(d);
               const stage = String(d.crm_stage?.label || "").trim() || "—";
               const activeKey = String(expandedCat[id] || "").trim();
@@ -342,6 +406,56 @@ export function ExecutiveDealsDrivingGapModule(props: {
                             <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">{d.signals?.next_steps || "—"}</div>
                           </div>
                         </div>
+                        {props.showRequestReview && !props.hideMatthewLinks ? (
+                          <>
+                            {!requestOpen ? (
+                              <div className="mt-3">
+                                <button
+                                  type="button"
+                                  onClick={() => openRequestComposer(id)}
+                                  className="inline-flex items-center justify-center rounded-md border border-[color:var(--sf-accent-primary)] px-4 py-2 text-xs font-semibold text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-accent-primary)] hover:text-white transition-colors"
+                                >
+                                  Request Review
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                ref={requestComposerRef}
+                                className="mt-3 rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3"
+                              >
+                                <textarea
+                                  value={requestNote}
+                                  onChange={(e) => setRequestNote(e.target.value)}
+                                  placeholder="e.g. Focus on Decision Process before our 1:1 Thursday"
+                                  className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)] placeholder:text-[color:var(--sf-text-secondary)]"
+                                  rows={2}
+                                />
+                                <p className="mt-1 text-xs text-[color:var(--sf-text-secondary)]">Add a note for the rep (optional)</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void sendRequestReview(id)}
+                                    disabled={requestSubmitting}
+                                    className="rounded-md border border-[color:var(--sf-accent-primary)] bg-[color:var(--sf-accent-primary)] px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-60"
+                                  >
+                                    Send Request
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelRequestComposer}
+                                    disabled={requestSubmitting}
+                                    className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-3 py-1.5 text-xs font-semibold text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface-alt)] disabled:opacity-60"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                                {requestError ? (
+                                  <p className="mt-2 text-xs text-red-600">Failed to send request. Please try again.</p>
+                                ) : null}
+                              </div>
+                            )}
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>

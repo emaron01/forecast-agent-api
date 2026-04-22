@@ -759,6 +759,7 @@ export function ExecutiveTabsShellClient(props: {
   allowedTabKeys?: ExecTabKey[];
   overviewSlot?: ReactNode;
   salesOpportunitiesSimpleProps?: Partial<SimpleForecastDashboardClientProps>;
+  salesOpportunitiesPanel?: ReactNode;
   forecastTabProps: ExecutiveGapInsightsClientProps;
   pipelineTabProps: ExecutiveGapInsightsClientProps;
   pipelineHygiene: PipelineHygienePayload;
@@ -937,7 +938,9 @@ export function ExecutiveTabsShellClient(props: {
         {activeTab === "overview" && (props.overviewSlot ?? null)}
         {activeTab === "sales_opportunities" && (
           <div className="-mx-4 -mt-4">
-            <SimpleForecastDashboardClient {...(props.salesOpportunitiesSimpleProps ?? {})} />
+            {props.salesOpportunitiesPanel ?? (
+              <SimpleForecastDashboardClient {...(props.salesOpportunitiesSimpleProps ?? {})} />
+            )}
           </div>
         )}
         {activeTab === "coaching" && (

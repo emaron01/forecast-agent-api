@@ -2479,6 +2479,7 @@ export function ExecutiveGapInsightsClient(props: {
               subtitle={undefined}
               deals={sortedDeals.slice(0, topN)}
               hideMatthewLinks={isChannelViewerRole}
+              showRequestReview={!isChannelViewerRole}
             />
           </div>
         </div>
@@ -3258,6 +3259,28 @@ export function ExecutiveGapInsightsClient(props: {
       <>
     <div className="grid gap-4">
       {renderCurrentExecutiveHeroSectionAndKpis()}
+
+      {(() => {
+        const stageLabel =
+          stageView === "commit"
+            ? "Commit deals driving the gap"
+            : stageView === "best_case"
+              ? "Best Case deals driving the gap"
+              : stageView === "pipeline"
+                ? "Pipeline deals driving the gap"
+                : "Deals driving the gap";
+
+        return (
+          <div className="grid gap-3">
+            <ExecutiveDealsDrivingGapModule
+              title={stageLabel}
+              subtitle={undefined}
+              deals={sortedDeals.slice(0, topN)}
+              hideMatthewLinks={isChannelViewerRole}
+            />
+          </div>
+        );
+      })()}
 
         {props.commitAdmission &&
         (props.commitAdmission.totalCommitCrmAmount > 0 ||

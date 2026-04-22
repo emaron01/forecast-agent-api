@@ -2,10 +2,67 @@
 
 import { type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
+import type { PartnerMotionDecisionEngine } from "../../../components/dashboard/executive/PartnerMotionPerformanceSection";
 import { ChannelPartnersTabHeroPanel } from "../../../components/dashboard/channel/ChannelPartnersTabHeroPanel";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 
 type ExecutiveGapProps = ComponentProps<typeof ExecutiveGapInsightsClient>;
+
+function health01FromScore30(score: unknown) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.max(0, Math.min(1, n / 30));
+}
+
+function clamp01(v: number) {
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+function buildPartnerMotionDecisionEngine(
+  partnersExecutive: ExecutiveGapProps["partnersExecutive"]
+): PartnerMotionDecisionEngine | null {
+  const pe = partnersExecutive;
+  if (!pe?.direct) return null;
+
+  const direct = pe.direct as PartnerMotionDecisionEngine["direct"];
+  const partner_influenced = pe.partner_influenced as PartnerMotionDecisionEngine["partner_influenced"];
+  const partner_sourced = pe.partner_sourced as PartnerMotionDecisionEngine["partner_sourced"];
+
+  const wonD = Number(direct.won_amount || 0) || 0;
+  const wonI = Number(partner_influenced.won_amount || 0) || 0;
+  const wonS = Number(partner_sourced.won_amount || 0) || 0;
+  const denom = wonD + wonI + wonS;
+
+  const ceiRaw = (motion: PartnerMotionDecisionEngine["direct"]) => {
+    const avgDays = motion.avg_days == null ? null : Number(motion.avg_days);
+    const won = Number(motion.won_amount || 0) || 0;
+    const win = motion.win_rate == null ? null : clamp01(Number(motion.win_rate));
+    const health = health01FromScore30(motion.avg_health_score);
+    const revenueVelocity = avgDays && avgDays > 0 ? won / avgDays : 0;
+    const qualityMultiplier = win == null ? 0 : health == null ? win : win * health;
+    return revenueVelocity * qualityMultiplier;
+  };
+
+  const direct_raw = ceiRaw(direct);
+  const sourced_raw = ceiRaw(partner_sourced);
+
+  return {
+    direct,
+    partner_influenced,
+    partner_sourced,
+    directMix: denom > 0 ? wonD / denom : null,
+    partnerInfluencedMix: denom > 0 ? wonI / denom : null,
+    partnerSourcedMix: denom > 0 ? wonS / denom : null,
+    cei: {
+      direct_raw,
+      sourced_raw,
+      partner_sourced_index: direct_raw > 0 ? (sourced_raw / direct_raw) * 100 : null,
+    },
+    cei_prev_partner_sourced_index: pe.cei_prev_partner_sourced_index ?? null,
+  };
+}
 
 /** Same Channel tab body as ExecutiveTabsShellClient `activeTab === "channel"` — scoped hero + partner intelligence. */
 export function ChannelTabPanelClient(props: {
@@ -41,12 +98,19 @@ export function ChannelTabPanelClient(props: {
   // Rep dashboard (/dashboard, hierarchy 3 / role REP) already renders the gap-insights hero above tabs — same pattern.
   const showEmbeddedChannelHeroPanel =
     !(isChannelDashboard && isChannelViewerRole) && !(isRepBookDashboard && isSalesRepRole);
+  const motionEngine = buildPartnerMotionDecisionEngine(revenueTabProps.partnersExecutive);
+  const showLeaderMotionSnapshotInHero = showEmbeddedChannelHeroPanel && !!motionEngine;
 
   return (
     <div className="-mx-4 -mt-4 space-y-5">
       {showEmbeddedChannelHeroPanel && showChannelContribution && channelContributionHero ? (
         <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <ChannelPartnersTabHeroPanel hero={channelContributionHero} basePath={revenueTabProps.basePath ?? ""} viewerRole={viewerRole} />
+          <ChannelPartnersTabHeroPanel
+            hero={channelContributionHero}
+            basePath={revenueTabProps.basePath ?? ""}
+            viewerRole={viewerRole}
+            motionEngine={motionEngine}
+          />
           {(channelContributionRows?.length ?? 0) > 0 ? (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full min-w-[640px] border-collapse text-sm">
@@ -93,7 +157,7 @@ export function ChannelTabPanelClient(props: {
         channelDashboardMode={true}
         channelTabOnly={true}
         showWicPqs={showWicPqs}
-        showCei={showCei}
+        showCei={showCei && !showLeaderMotionSnapshotInHero}
         viewerRole={viewerRole}
         topPartnerWon={topPartnerWon as ExecutiveGapProps["topPartnerWon"]}
         topPartnerLost={topPartnerLost as ExecutiveGapProps["topPartnerLost"]}

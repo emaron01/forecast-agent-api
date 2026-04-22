@@ -9,6 +9,7 @@ import { getExecutiveForecastDashboardSummary, getProductsClosedWonByRepForPerio
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
 import { ExecutiveBriefingProvider } from "../../../components/dashboard/executive/ExecutiveBriefingContext";
 import { ExecutiveTabsShellClient } from "../../components/dashboard/executive/ExecutiveTabsShellClient";
+import { ExecutiveSalesOpportunitiesTabClient } from "../../components/dashboard/executive/ExecutiveSalesOpportunitiesTabClient";
 import type {
   RepManagerManagerRow,
   RepManagerRepRow,
@@ -1923,6 +1924,9 @@ export default async function ExecutiveDashboardPage({
           orgId={ctx.user.org_id}
           orgName={orgName}
           viewerRole={ctx.user.role}
+          salesOpportunitiesPanel={
+            <ExecutiveSalesOpportunitiesTabClient quotaPeriodId={summary.selectedQuotaPeriodId} />
+          }
           forecastTabProps={{
             basePath: "/dashboard/executive",
             periods: summary.periods,
