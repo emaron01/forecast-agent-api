@@ -17,6 +17,14 @@ function hubTierDisplayLabel(tier: string | null | undefined): string {
 
 type SavedMap = { sf_field: string; hubspot_property: string | null; confidence: string };
 
+type WritebackFieldKey = "health_initial" | "health_current" | "risk_summary" | "next_steps";
+
+type WritebackMappingRow = {
+  sf_field: WritebackFieldKey;
+  mode: "sf_property" | "custom";
+  hubspot_property: string | null;
+};
+
 const SF_LABELS: Record<string, string> = {
   deal_name: "Opportunity Name",
   amount: "Revenue (Amount)",
@@ -30,6 +38,52 @@ const SF_LABELS: Record<string, string> = {
   deal_reg_date: "Deal Registration Date (optional)",
   deal_reg_id: "Deal Registration ID / Number (optional)",
 };
+
+const WRITEBACK_FIELDS: Array<{
+  sf_field: WritebackFieldKey;
+  label: string;
+  description: string;
+  sfPropertyName: string;
+  compatibleType: "number" | "string";
+}> = [
+  {
+    sf_field: "health_initial",
+    label: "Initial Health Score",
+    description: "Written once when Matthew first reviews this deal. Never overwritten.",
+    sfPropertyName: "sf_health_initial",
+    compatibleType: "number",
+  },
+  {
+    sf_field: "health_current",
+    label: "Current Health Score",
+    description: "Updated after every Matthew review.",
+    sfPropertyName: "sf_health_current",
+    compatibleType: "number",
+  },
+  {
+    sf_field: "risk_summary",
+    label: "Risk Summary",
+    description: "Matthew's narrative risk assessment.",
+    sfPropertyName: "sf_risk_summary",
+    compatibleType: "string",
+  },
+  {
+    sf_field: "next_steps",
+    label: "Next Steps",
+    description: "Matthew's recommended next steps.",
+    sfPropertyName: "sf_next_steps",
+    compatibleType: "string",
+  },
+];
+
+function defaultWritebackRows(): Record<WritebackFieldKey, WritebackMappingRow> {
+  return {
+    health_initial: { sf_field: "health_initial", mode: "sf_property", hubspot_property: null },
+    health_current: { sf_field: "health_current", mode: "sf_property", hubspot_property: null },
+    risk_summary: { sf_field: "risk_summary", mode: "sf_property", hubspot_property: null },
+    next_steps: { sf_field: "next_steps", mode: "sf_property", hubspot_property: null },
+  };
+}
 
 export function HubspotIntegrationClient(props: {
   orgId: number;
@@ -61,6 +115,11 @@ export function HubspotIntegrationClient(props: {
   const [poll, setPoll] = useState(false);
   /** Tier sent as `?tier=` on the HubSpot OAuth connect URL (default Professional / Enterprise). */
   const [oauthConnectTier, setOauthConnectTier] = useState<"starter" | "professional">("professional");
+  const [writebackRows, setWritebackRows] = useState<Record<WritebackFieldKey, WritebackMappingRow>>(defaultWritebackRows);
+  const [writebackMappingsLoading, setWritebackMappingsLoading] = useState(false);
+  const [writebackMappingsSaving, setWritebackMappingsSaving] = useState(false);
+  const [writebackMappingsErr, setWritebackMappingsErr] = useState("");
+  const [writebackMappingsSavedFlash, setWritebackMappingsSavedFlash] = useState("");
 
   useEffect(() => {
     setConnection(props.connection);
@@ -82,6 +141,12 @@ export function HubspotIntegrationClient(props: {
     const id = setTimeout(() => setLayoutSavedFlash(""), 3000);
     return () => clearTimeout(id);
   }, [layoutSavedFlash]);
+
+  useEffect(() => {
+    if (!writebackMappingsSavedFlash) return;
+    const id = setTimeout(() => setWritebackMappingsSavedFlash(""), 3000);
+    return () => clearTimeout(id);
+  }, [writebackMappingsSavedFlash]);
 
   useEffect(() => {
     if (props.mappingsComplete && !props.initialSyncComplete && props.connection) {
@@ -172,6 +237,41 @@ export function HubspotIntegrationClient(props: {
     };
   }, [step1Done, props.savedMappings]);
 
+  useEffect(() => {
+    if (!step1Done) return;
+    let cancelled = false;
+    (async () => {
+      setWritebackMappingsLoading(true);
+      setWritebackMappingsErr("");
+      try {
+        const res = await fetch("/api/integrations/hubspot/writeback-mappings");
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.ok || !Array.isArray(j.mappings)) {
+          throw new Error(j.error || "Failed to load writeback mappings");
+        }
+        if (cancelled) return;
+        const next = defaultWritebackRows();
+        for (const row of j.mappings as Array<{ sf_field: string; mode: string; hubspot_property: string | null }>) {
+          const sf = String(row?.sf_field || "").trim() as WritebackFieldKey;
+          if (!(sf in next)) continue;
+          next[sf] = {
+            sf_field: sf,
+            mode: row?.mode === "custom" ? "custom" : "sf_property",
+            hubspot_property: row?.hubspot_property == null ? null : String(row.hubspot_property),
+          };
+        }
+        setWritebackRows(next);
+      } catch (e: any) {
+        if (!cancelled) setWritebackMappingsErr(e?.message || String(e));
+      } finally {
+        if (!cancelled) setWritebackMappingsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [step1Done]);
+
   const textProps = useMemo(
     () =>
       (properties || []).filter((p) => {
@@ -181,6 +281,31 @@ export function HubspotIntegrationClient(props: {
       }),
     [properties]
   );
+
+  const numberProps = useMemo(
+    () =>
+      (properties || []).filter((p) => {
+        const t = (p.type || "").toLowerCase();
+        return t === "number";
+      }),
+    [properties]
+  );
+
+  const writebackStringProps = useMemo(
+    () =>
+      (properties || []).filter((p) => {
+        const t = (p.type || "").toLowerCase();
+        return t === "string";
+      }),
+    [properties]
+  );
+
+  const writebackPropertyOptions = useMemo(() => {
+    return {
+      number: numberProps,
+      string: writebackStringProps,
+    };
+  }, [numberProps, writebackStringProps]);
 
   const buildMappingsPayload = (): SavedMap[] => {
     const mappings: SavedMap[] = [];
@@ -330,6 +455,33 @@ export function HubspotIntegrationClient(props: {
       setErr(e?.message || String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveWritebackMappings = async () => {
+    setWritebackMappingsSaving(true);
+    setWritebackMappingsErr("");
+    try {
+      const mappings = WRITEBACK_FIELDS.map((field) => {
+        const row = writebackRows[field.sf_field] || defaultWritebackRows()[field.sf_field];
+        return {
+          sf_field: field.sf_field,
+          mode: row.mode,
+          hubspot_property: row.mode === "custom" ? row.hubspot_property || null : null,
+        };
+      });
+      const res = await fetch("/api/integrations/hubspot/writeback-mappings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mappings }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.error || "Save failed");
+      setWritebackMappingsSavedFlash(String(Date.now()));
+    } catch (e: any) {
+      setWritebackMappingsErr(e?.message || String(e));
+    } finally {
+      setWritebackMappingsSaving(false);
     }
   };
 
@@ -602,14 +754,153 @@ export function HubspotIntegrationClient(props: {
           <div className="mt-8 border-t border-[color:var(--sf-border)] pt-6">
             <h3 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Score writeback to HubSpot</h3>
             <p className="mt-2 text-sm text-[color:var(--sf-text-secondary)]">
-              Write SalesForecast.io scores to HubSpot deal records. Creates a &quot;SalesForecast.io&quot; property group on your deals with eight fields:
-              Overall Health, AI Verdict, Score Source, Top Risk Categories, Last Reviewed, Review Count, Risk Summary, and Next Steps. You can disable this
-              at any time. Your existing HubSpot fields are never modified.
+              Write SalesForecast.io scores to HubSpot deal records. Creates a &quot;SalesForecast.io&quot; property group on your deals with four fields:
+              Initial Health Score, Current Health Score, Risk Summary, and Next Steps. You can disable this at any time. Your existing HubSpot fields are
+              never modified.
             </p>
             <label className="mt-3 flex items-center gap-2 text-sm text-[color:var(--sf-text-primary)]">
               <input type="checkbox" checked={writeback} onChange={(e) => toggleWriteback(e.target.checked)} disabled={busy} />
               Enabled
             </label>
+            {writeback ? (
+              <div className="mt-5 space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-[color:var(--sf-text-primary)]">Writeback field mapping</h4>
+                  <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                    Choose whether each SalesForecast field writes to the managed SalesForecast.io property or an existing compatible HubSpot deal property.
+                  </p>
+                  {writebackMappingsErr ? <p className="mt-2 text-sm text-[#E74C3C]">{writebackMappingsErr}</p> : null}
+                </div>
+
+                {writebackMappingsLoading ? (
+                  <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-secondary)]">
+                    Loading writeback mappings...
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-auto rounded-lg border border-[color:var(--sf-border)]">
+                      <table className="w-full min-w-[980px] text-left text-sm">
+                        <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
+                          <tr>
+                            <th className="px-3 py-2">SalesForecast field</th>
+                            <th className="px-3 py-2">Write to</th>
+                            <th className="px-3 py-2">HubSpot destination</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {WRITEBACK_FIELDS.map((field) => {
+                            const row = writebackRows[field.sf_field] || defaultWritebackRows()[field.sf_field];
+                            const options = field.compatibleType === "number" ? writebackPropertyOptions.number : writebackPropertyOptions.string;
+                            const listId = `hubspot-writeback-${field.sf_field}`;
+                            return (
+                              <tr key={field.sf_field} className="border-t border-[color:var(--sf-border)]">
+                                <td className="px-3 py-3 align-top text-[color:var(--sf-text-primary)]">
+                                  <div className="font-medium">{field.label}</div>
+                                  <div className="mt-1 text-[11px] leading-relaxed text-[color:var(--sf-text-secondary)]">{field.description}</div>
+                                </td>
+                                <td className="px-3 py-3 align-top">
+                                  <div className="inline-flex rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-1">
+                                    <button
+                                      type="button"
+                                      disabled={writebackMappingsSaving}
+                                      onClick={() =>
+                                        setWritebackRows((prev) => ({
+                                          ...prev,
+                                          [field.sf_field]: {
+                                            ...row,
+                                            mode: "sf_property",
+                                            hubspot_property: null,
+                                          },
+                                        }))
+                                      }
+                                      className={`rounded px-3 py-1.5 text-xs font-medium ${
+                                        row.mode === "sf_property"
+                                          ? "bg-[color:var(--sf-button-primary-bg)] text-[color:var(--sf-button-primary-text)]"
+                                          : "text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                                      } disabled:opacity-50`}
+                                    >
+                                      SalesForecast Property
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={writebackMappingsSaving}
+                                      onClick={() =>
+                                        setWritebackRows((prev) => ({
+                                          ...prev,
+                                          [field.sf_field]: {
+                                            ...row,
+                                            mode: "custom",
+                                          },
+                                        }))
+                                      }
+                                      className={`rounded px-3 py-1.5 text-xs font-medium ${
+                                        row.mode === "custom"
+                                          ? "bg-[color:var(--sf-button-primary-bg)] text-[color:var(--sf-button-primary-text)]"
+                                          : "text-[color:var(--sf-text-primary)] hover:bg-[color:var(--sf-surface)]"
+                                      } disabled:opacity-50`}
+                                    >
+                                      Map to Existing
+                                    </button>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-3 align-top">
+                                  {row.mode === "sf_property" ? (
+                                    <span className="inline-flex rounded-full bg-[color:var(--sf-surface-alt)] px-2.5 py-1 text-xs font-medium text-[color:var(--sf-text-primary)]">
+                                      {field.sfPropertyName}
+                                    </span>
+                                  ) : (
+                                    <div className="max-w-md">
+                                      <input
+                                        list={listId}
+                                        disabled={writebackMappingsSaving}
+                                        className="w-full rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm disabled:opacity-50"
+                                        placeholder="Search HubSpot properties..."
+                                        value={row.hubspot_property || ""}
+                                        onChange={(e) =>
+                                          setWritebackRows((prev) => ({
+                                            ...prev,
+                                            [field.sf_field]: {
+                                              ...row,
+                                              hubspot_property: e.target.value.trim() || null,
+                                            },
+                                          }))
+                                        }
+                                      />
+                                      <datalist id={listId}>
+                                        {options.map((p) => (
+                                          <option key={p.name} value={p.name}>
+                                            {p.label} ({p.name})
+                                          </option>
+                                        ))}
+                                      </datalist>
+                                      <p className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                                        Compatible HubSpot {field.compatibleType} properties only.
+                                      </p>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        disabled={writebackMappingsSaving}
+                        onClick={saveWritebackMappings}
+                        className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-4 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)] disabled:opacity-50"
+                      >
+                        Save Writeback Mapping
+                      </button>
+                      {writebackMappingsSavedFlash ? <span className="text-sm font-medium text-emerald-800">Writeback mapping saved ✓</span> : null}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}

@@ -690,7 +690,7 @@ export async function updateDealProperties(
   return { ok: true, data: undefined };
 }
 
-export async function createPropertyGroup(orgId: number): Promise<HubSpotResult<void>> {
+export async function createWritebackProperties(orgId: number): Promise<HubSpotResult<void>> {
   const groupBody = {
     name: "salesforecast_io",
     label: "SalesForecast.io",
@@ -702,26 +702,10 @@ export async function createPropertyGroup(orgId: number): Promise<HubSpotResult<
   }
 
   const defs = [
-    { name: "sf_overall_health", label: "SF Overall Health", type: "number", fieldType: "number", groupName: "salesforecast_io" },
-    { name: "sf_ai_verdict", label: "SF AI Verdict", type: "string", fieldType: "text", groupName: "salesforecast_io" },
-    { name: "sf_score_source", label: "SF Score Source", type: "string", fieldType: "text", groupName: "salesforecast_io" },
-    { name: "sf_top_risk_categories", label: "SF Top Risk Categories", type: "string", fieldType: "textarea", groupName: "salesforecast_io" },
-    { name: "sf_last_reviewed", label: "SF Last Reviewed", type: "datetime", fieldType: "date", groupName: "salesforecast_io" },
-    { name: "sf_review_count", label: "SF Review Count", type: "number", fieldType: "number", groupName: "salesforecast_io" },
-    {
-      name: "sf_risk_summary",
-      label: "SF Risk Summary",
-      type: "string",
-      fieldType: "textarea",
-      groupName: "salesforecast_io",
-    },
-    {
-      name: "sf_next_steps",
-      label: "SF Next Steps",
-      type: "string",
-      fieldType: "textarea",
-      groupName: "salesforecast_io",
-    },
+    { name: "sf_health_initial", label: "SF Health Score (Initial)", type: "number", fieldType: "number", groupName: "salesforecast_io" },
+    { name: "sf_health_current", label: "SF Health Score (Current)", type: "number", fieldType: "number", groupName: "salesforecast_io" },
+    { name: "sf_risk_summary", label: "SF Risk Summary", type: "string", fieldType: "textarea", groupName: "salesforecast_io" },
+    { name: "sf_next_steps", label: "SF Next Steps", type: "string", fieldType: "textarea", groupName: "salesforecast_io" },
   ];
 
   for (const def of defs) {
@@ -733,6 +717,8 @@ export async function createPropertyGroup(orgId: number): Promise<HubSpotResult<
   }
   return { ok: true, data: undefined };
 }
+
+export const createPropertyGroup = createWritebackProperties;
 
 function normalizeSignatureVersion(raw: string): "v1" | "v2" | "v3" | null {
   const v = String(raw || "")
@@ -943,18 +929,35 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
     if (conn.ok === false) return { ok: true, data: { skipped: "not_connected" } };
     if (!conn.data.writeback_enabled) return { ok: true, data: { skipped: "writeback_off" } };
 
+    const { rows: mappingRows } = await pool.query<{
+      sf_field: string;
+      mode: string;
+      hubspot_property: string | null;
+    }>(
+      `
+      SELECT
+        sf_field,
+        mode,
+        hubspot_property
+      FROM hubspot_writeback_mappings
+      WHERE org_id = $1
+        AND sf_field = ANY($2::text[])
+      `,
+      [orgId, ["health_initial", "health_current", "risk_summary", "next_steps"]]
+    );
+    if (!mappingRows.length) return { ok: true, data: { skipped: "not_configured" } };
+
     const { rows: oRows } = await pool.query(
       `
       SELECT
         o.id,
         o.public_id::text AS public_id,
         o.crm_opp_id,
+        o.baseline_health_score,
+        o.baseline_health_score_ts,
         o.health_score,
         o.risk_summary,
-        o.next_steps,
-        o.forecast_stage,
-        o.sales_stage,
-        COALESCE(o.run_count, 0)::int AS run_count
+        o.next_steps
       FROM opportunities o
       WHERE o.org_id = $1
         AND o.public_id::text = $2
@@ -967,98 +970,62 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
 
     const hubDealId = String(opp.crm_opp_id).trim();
 
-    const { rows: auditRows } = await pool.query(
-      `
-      SELECT
-        total_score,
-        ai_forecast,
-        meta,
-        ts
-      FROM opportunity_audit_events
-      WHERE org_id = $1
-        AND opportunity_id = $2
-        AND source = 'matthew'
-      ORDER BY ts DESC NULLS LAST, id DESC
-      LIMIT 1
-      `,
-      [orgId, opp.id]
+    const fixedSfPropertyByField: Record<string, string> = {
+      health_initial: "sf_health_initial",
+      health_current: "sf_health_current",
+      risk_summary: "sf_risk_summary",
+      next_steps: "sf_next_steps",
+    };
+    const mappingByField = new Map(
+      mappingRows.map((row) => [String(row.sf_field || "").trim(), row] as const)
     );
-    const audit = auditRows?.[0] as any;
 
-    const healthScoreRaw = Number(audit?.total_score ?? opp.health_score ?? 0);
-    const healthPct = Math.max(0, Math.min(100, Math.round((healthScoreRaw / 30) * 100)));
+    const props: Record<string, string> = {};
+    for (const sfField of ["health_initial", "health_current", "risk_summary", "next_steps"] as const) {
+      const mapping = mappingByField.get(sfField);
+      if (!mapping) continue;
 
-    const stageMappings: Array<{ stage_value: string; bucket: string }> = await pool
-      .query(`SELECT stage_value, bucket FROM org_stage_mappings WHERE org_id = $1`, [orgId])
-      .then((r) => (r.rows || []) as any[])
-      .catch(() => []);
+      const mode = String(mapping.mode || "").trim();
+      const targetProperty =
+        mode === "custom"
+          ? String(mapping.hubspot_property || "").trim()
+          : fixedSfPropertyByField[sfField];
+      if (!targetProperty) continue;
 
-    function bucketToVerdict(bucket: string): string {
-      switch (String(bucket || "").trim().toLowerCase()) {
-        case "won":
-          return "Commit";
-        case "commit":
-          return "Commit";
-        case "best_case":
-          return "Best Case";
-        case "lost":
-          return "Pipeline";
-        case "pipeline":
-          return "Pipeline";
-        default:
-          return "Pipeline";
+      if (sfField === "health_initial") {
+        if (!opp.baseline_health_score_ts) continue;
+        const currentRes = await hubspotAuthorizedJson(
+          orgId,
+          "GET",
+          `https://api.hubapi.com/crm/v3/objects/deals/${encodeURIComponent(hubDealId)}?properties=${encodeURIComponent(targetProperty)}`
+        );
+        if (currentRes.ok === false) return { ok: false, error: currentRes.error };
+        const existingValue = currentRes.json?.properties?.[targetProperty];
+        if (existingValue != null && String(existingValue).trim() !== "") continue;
+        if (opp.baseline_health_score != null) {
+          props[targetProperty] = String(Number(opp.baseline_health_score) || 0);
+        }
+        continue;
+      }
+
+      if (sfField === "health_current") {
+        if (opp.health_score != null) {
+          props[targetProperty] = String(Number(opp.health_score) || 0);
+        }
+        continue;
+      }
+
+      if (sfField === "risk_summary") {
+        props[targetProperty] = String(opp.risk_summary ?? "");
+        continue;
+      }
+
+      if (sfField === "next_steps") {
+        props[targetProperty] = String(opp.next_steps ?? "");
       }
     }
 
-    const fsRaw = String(opp.forecast_stage ?? "");
-    const ssRaw = String(opp.sales_stage ?? "");
-    const mappedBucket = stageMappings.find((m) => {
-      const v = String(m?.stage_value ?? "").toLowerCase();
-      return v && (v === fsRaw.toLowerCase() || v === ssRaw.toLowerCase());
-    })?.bucket;
-
-    const fs = fsRaw.toLowerCase();
-    const verdictFromStage =
-      mappedBucket != null
-        ? bucketToVerdict(mappedBucket)
-        : fs.includes("at risk") || fs.includes("at_risk")
-          ? "At Risk"
-          : fs.includes("commit")
-            ? "Commit"
-            : fs.includes("best")
-              ? "Best Case"
-              : "Pipeline";
-    const verdictRaw = String(audit?.ai_forecast ?? "").trim();
-    const verdict =
-      verdictRaw && ["Commit", "Best Case", "Pipeline", "At Risk"].includes(verdictRaw) ? verdictRaw : verdictFromStage;
-
-    let topRisks: string[] = [];
-    try {
-      const meta = audit?.meta;
-      const m = typeof meta === "string" ? JSON.parse(meta) : meta;
-      const arr = m?.top_risk_categories ?? m?.topRisks ?? m?.risk_categories;
-      if (Array.isArray(arr)) topRisks = arr.map((x: any) => String(x || "").trim()).filter(Boolean);
-      else if (typeof arr === "string" && arr.trim()) topRisks = arr.split(",").map((x: string) => x.trim()).filter(Boolean);
-    } catch {
-      topRisks = [];
-    }
-
-    const reviewCount = Number(opp.run_count || 0) || 0;
-    const scoreSource = reviewCount > 0 ? "Matthew Review" : "Initial Ingest";
-
-    const riskSummary = String(opp.risk_summary ?? "").trim();
-    const nextSteps = String(opp.next_steps ?? "").trim();
-
-    const props: Record<string, string> = {
-      sf_overall_health: String(healthPct),
-      sf_ai_verdict: verdict,
-      sf_score_source: scoreSource,
-      sf_top_risk_categories: topRisks.join(", "),
-      sf_last_reviewed: new Date().toISOString(),
-      sf_review_count: String(reviewCount),
-      sf_risk_summary: riskSummary,
-      sf_next_steps: nextSteps,
-    };
+    if (!Object.keys(props).length) return { ok: true, data: { skipped: "nothing_to_write" } };
 
     const wb = await updateDealProperties(orgId, hubDealId, props);
     if (wb.ok === false) return wb;
