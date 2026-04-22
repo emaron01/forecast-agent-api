@@ -16,6 +16,26 @@ import {
 
 export const runtime = "nodejs";
 
+function isForecastingAdminManager(args: {
+  managerLevel: number | null | undefined;
+  managerAdminHasFullAnalyticsAccess?: boolean | null;
+}) {
+  return isAdminLevel(args.managerLevel) && !!args.managerAdminHasFullAnalyticsAccess;
+}
+
+function isValidManagerForAdminExecDashboard(args: {
+  managerLevel: number | null | undefined;
+  managerAdminHasFullAnalyticsAccess?: boolean | null;
+}) {
+  return (
+    isForecastingAdminManager(args) ||
+    args.managerLevel === HIERARCHY.EXEC_MANAGER ||
+    args.managerLevel === HIERARCHY.MANAGER ||
+    args.managerLevel === HIERARCHY.CHANNEL_EXEC ||
+    args.managerLevel === HIERARCHY.CHANNEL_MANAGER
+  );
+}
+
 const roleOptions = [
   "ADMIN",
   "EXEC_MANAGER",
@@ -76,7 +96,8 @@ export async function PATCH(req: Request) {
         u.manager_user_id,
         u.admin_has_full_analytics_access,
         u.see_all_visibility,
-        m.role AS manager_role
+        m.role AS manager_role,
+        m.admin_has_full_analytics_access AS manager_admin_has_full_analytics_access
       FROM users u
       LEFT JOIN users m ON m.id = u.manager_user_id
       WHERE u.public_id = $1::uuid
@@ -94,6 +115,7 @@ export async function PATCH(req: Request) {
           admin_has_full_analytics_access: boolean | null;
           see_all_visibility: boolean | null;
           manager_role: string | null;
+          manager_admin_has_full_analytics_access: boolean | null;
         }
       | undefined;
 
@@ -101,6 +123,10 @@ export async function PATCH(req: Request) {
 
     const currentManagerUserId: number | null = existing.manager_user_id == null ? null : Number(existing.manager_user_id);
     const currentManagerLevel = roleToHierarchyLevel(existing.manager_role);
+    const currentManagerIsForecastingAdmin = isForecastingAdminManager({
+      managerLevel: currentManagerLevel,
+      managerAdminHasFullAnalyticsAccess: existing.manager_admin_has_full_analytics_access,
+    });
 
     // Validate manager_user_id compatibility for incoming role (sales roles only; channel roles allow free alignment).
     let nextManagerUserId: number | null = currentManagerUserId;
@@ -110,12 +136,12 @@ export async function PATCH(req: Request) {
     } else if (isRepLevel(nextHierarchyLevel)) {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
-      } else if (isManagerLevel(currentManagerLevel) || isExecManagerLevel(currentManagerLevel)) {
+      } else if (currentManagerIsForecastingAdmin || isManagerLevel(currentManagerLevel) || isExecManagerLevel(currentManagerLevel)) {
         nextManagerUserId = currentManagerUserId;
       } else {
         return NextResponse.json(
           {
-            error: `invalid_manager_user_id_for_role: REP requires manager_role in (MANAGER, EXEC_MANAGER) or null; got ${existing.manager_role}`,
+            error: `invalid_manager_user_id_for_role: REP requires manager_role in (ADMIN with dashboard access, MANAGER, EXEC_MANAGER) or null; got ${existing.manager_role}`,
           },
           { status: 400 }
         );
@@ -123,18 +149,37 @@ export async function PATCH(req: Request) {
     } else if (isManagerLevel(nextHierarchyLevel)) {
       if (currentManagerUserId == null) {
         nextManagerUserId = null;
-      } else if (isExecManagerLevel(currentManagerLevel)) {
+      } else if (currentManagerIsForecastingAdmin || isExecManagerLevel(currentManagerLevel)) {
         nextManagerUserId = currentManagerUserId;
       } else {
         return NextResponse.json(
           {
-            error: `invalid_manager_user_id_for_role: MANAGER requires manager_role EXEC_MANAGER or null; got ${existing.manager_role}`,
+            error: `invalid_manager_user_id_for_role: MANAGER requires manager_role ADMIN with dashboard access, EXEC_MANAGER or null; got ${existing.manager_role}`,
           },
           { status: 400 }
         );
       }
-    } else if (isExecManagerLevel(nextHierarchyLevel) || isAdminLevel(nextHierarchyLevel)) {
-      nextManagerUserId = null;
+    } else if (isExecManagerLevel(nextHierarchyLevel)) {
+      if (currentManagerUserId == null) {
+        nextManagerUserId = null;
+      } else if (currentManagerIsForecastingAdmin || isExecManagerLevel(currentManagerLevel)) {
+        nextManagerUserId = currentManagerUserId;
+      } else {
+        nextManagerUserId = null;
+      }
+    } else if (isAdminLevel(nextHierarchyLevel)) {
+      if (currentManagerUserId == null) {
+        nextManagerUserId = null;
+      } else if (
+        isValidManagerForAdminExecDashboard({
+          managerLevel: currentManagerLevel,
+          managerAdminHasFullAnalyticsAccess: existing.manager_admin_has_full_analytics_access,
+        })
+      ) {
+        nextManagerUserId = currentManagerUserId;
+      } else {
+        nextManagerUserId = null;
+      }
     }
 
     // Compute the field updates based on the new role.

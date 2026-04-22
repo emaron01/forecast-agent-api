@@ -79,6 +79,10 @@ function canAssignDirectReportLevel(managerLevel: number | null | undefined, tar
   return false;
 }
 
+function isForecastingAdminUser(row: { hierarchy_level?: unknown; admin_has_full_analytics_access?: unknown }) {
+  return isAdminLevel(Number(row?.hierarchy_level)) && !!row?.admin_has_full_analytics_access;
+}
+
 export default async function UsersPage({
   searchParams,
 }: {
@@ -155,19 +159,19 @@ export default async function UsersPage({
   const repManagerCandidates = isAdmin
     ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
-        return !!u.active && (level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER);
+        return !!u.active && (isForecastingAdminUser(u) || level === HIERARCHY.EXEC_MANAGER || level === HIERARCHY.MANAGER);
       })
     : [];
   const managerManagerCandidates = isAdmin
     ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
-        return !!u.active && (level === HIERARCHY.ADMIN || level === HIERARCHY.EXEC_MANAGER);
+        return !!u.active && (isForecastingAdminUser(u) || level === HIERARCHY.EXEC_MANAGER);
       })
     : [];
   const execManagerCandidates = isAdmin
     ? (usersRaw ?? []).filter((u) => {
         const level = Number(u.hierarchy_level);
-        return !!u.active && (level === HIERARCHY.ADMIN || level === HIERARCHY.EXEC_MANAGER);
+        return !!u.active && (isForecastingAdminUser(u) || level === HIERARCHY.EXEC_MANAGER);
       })
     : [];
 
@@ -181,7 +185,7 @@ export default async function UsersPage({
     : [];
   const channelAndSalesLeaders = allActiveUsers.filter((u) => {
     const level = Number(u.hierarchy_level);
-    return !!u.active && u.hierarchy_level !== 0 && (level <= 2 || (level >= 6 && level <= 7));
+    return !!u.active && (isForecastingAdminUser(u) || level <= 2 || (level >= 6 && level <= 7));
   });
   const userById = new Map<number, (typeof usersRaw)[number]>((usersRaw ?? []).map((u) => [u.id, u]));
   for (const u of allActiveUsers) {

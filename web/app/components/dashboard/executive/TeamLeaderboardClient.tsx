@@ -73,9 +73,7 @@ export type TeamLeaderboardProps = {
 function fmtMoney(n: unknown) {
   const v = Number(n || 0);
   if (!Number.isFinite(v)) return "—";
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1000) return `$${(v / 1000).toFixed(0)}K`;
-  return `$${Math.round(v)}`;
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function departedRepHasInScopeActivity(rep: RepManagerRepRow): boolean {
@@ -236,6 +234,9 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   const quota = reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
   const wonAmount = reps.reduce((sum, rep) => sum + (Number(rep.won_amount) || 0), 0);
   const lostAmount = reps.reduce((sum, rep) => sum + getLostAmount(rep), 0);
+  const commitAmount = reps.reduce((sum, rep) => sum + (Number(rep.commit_amount) || 0), 0);
+  const bestAmount = reps.reduce((sum, rep) => sum + (Number(rep.best_amount) || 0), 0);
+  const pipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.pipeline_amount) || 0), 0);
   const activePipelineAmount = reps.reduce((sum, rep) => sum + (Number(rep.active_amount) || 0), 0);
   const totalCount = reps.reduce((sum, rep) => sum + (Number(rep.total_count) || 0), 0);
   const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
@@ -244,7 +245,22 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   const avgDaysWon = average(reps.map((rep) => rep.avg_days_won));
   const avgDaysLost = average(reps.map((rep) => rep.avg_days_lost));
   const avgDaysActive = average(reps.map((rep) => rep.avg_days_active));
-  return { quota, wonAmount, lostAmount, activePipelineAmount, totalCount, wonCount, lostCount, aov, avgDaysWon, avgDaysLost, avgDaysActive };
+  return {
+    quota,
+    wonAmount,
+    lostAmount,
+    commitAmount,
+    bestAmount,
+    pipelineAmount,
+    activePipelineAmount,
+    totalCount,
+    wonCount,
+    lostCount,
+    aov,
+    avgDaysWon,
+    avgDaysLost,
+    avgDaysActive,
+  };
 }
 
 function aggregateAnnualTeam(fyRows: TeamLeaderboardFyQuarterRow[], repIntIds: string[]) {
@@ -486,6 +502,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     ytdAttainPct: number;
     fyQuarters: TeamLeaderboardFyQuarterRow[];
     activePipelineAmount: number;
+    commitAmount: number;
+    bestAmount: number;
+    pipelineAmount: number;
     totalCount: number;
     wonCount: number;
     lostCount: number;
@@ -551,14 +570,31 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
 
     return (
       <div className={`rounded-xl border p-5 ${paceStatusCardClass(args.paceStatus)}`}>
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div className="shrink-0">
             <div className="font-bold text-xl text-[color:var(--sf-text-primary)]">{args.name}</div>
             <div className={`mt-0.5 text-sm font-semibold ${paceColor}`}>
               {paceIcon} {paceLabel}
             </div>
           </div>
-          <div className="text-right">
+          <div className="min-w-0 flex-1 text-sm text-[color:var(--sf-text-secondary)] xl:px-6 xl:text-center">
+            <div className="flex flex-wrap items-center justify-start gap-x-4 gap-y-1 xl:justify-center">
+              <span>
+                Commit: <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.commitAmount)}</span>
+              </span>
+              <span>
+                Best Case: <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.bestAmount)}</span>
+              </span>
+              <span>
+                Pipeline: <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.pipelineAmount)}</span>
+              </span>
+              <span>
+                Total Pipeline:{" "}
+                <span className="font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(args.activePipelineAmount)}</span>
+              </span>
+            </div>
+          </div>
+          <div className="shrink-0 text-left xl:text-right">
             <div className={`text-3xl font-bold ${attainColor}`}>{args.attainPct}%</div>
             <div className="text-sm text-[color:var(--sf-text-secondary)]">Q attainment</div>
           </div>
@@ -828,6 +864,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: Number(rep.active_amount) || 0,
+          commitAmount: Number(rep.commit_amount) || 0,
+          bestAmount: Number(rep.best_amount) || 0,
+          pipelineAmount: Number(rep.pipeline_amount) || 0,
           totalCount: Number(rep.total_count) || 0,
           wonCount: Number(rep.won_count) || 0,
           lostCount: Number(rep.lost_count) || 0,
@@ -957,6 +996,9 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
           ytdAttainPct,
           fyQuarters,
           activePipelineAmount: current.activePipelineAmount,
+          commitAmount: current.commitAmount,
+          bestAmount: current.bestAmount,
+          pipelineAmount: current.pipelineAmount,
           totalCount: current.totalCount,
           wonCount: effectiveWonCount,
           lostCount: current.lostCount,

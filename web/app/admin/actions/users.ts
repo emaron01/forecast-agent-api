@@ -104,23 +104,46 @@ function buildDisplayName(first_name: string, last_name: string) {
   return `${String(first_name || "").trim()} ${String(last_name || "").trim()}`.trim();
 }
 
-function isValidSalesManagerForUser(userHierarchyLevel: number, managerHierarchyLevel: number) {
+function isForecastingAdminUser(row: {
+  hierarchy_level?: unknown;
+  role?: unknown;
+  admin_has_full_analytics_access?: unknown;
+}) {
+  const level = effectiveUserHierarchyLevel(row);
+  return isAdminLevel(level) && !!row?.admin_has_full_analytics_access;
+}
+
+function isValidSalesManagerForUser(
+  userHierarchyLevel: number,
+  managerRow: {
+    hierarchy_level?: unknown;
+    role?: unknown;
+    admin_has_full_analytics_access?: unknown;
+  }
+) {
+  const managerHierarchyLevel = effectiveUserHierarchyLevel(managerRow);
+  const forecastingAdmin = isForecastingAdminUser(managerRow);
   if (isRepLevel(userHierarchyLevel)) {
-    return managerHierarchyLevel === HIERARCHY.EXEC_MANAGER || managerHierarchyLevel === HIERARCHY.MANAGER;
+    return forecastingAdmin || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER || managerHierarchyLevel === HIERARCHY.MANAGER;
   }
   if (isManagerLevel(userHierarchyLevel)) {
-    return managerHierarchyLevel === HIERARCHY.ADMIN || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
+    return forecastingAdmin || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
   }
   if (isExecManagerLevel(userHierarchyLevel)) {
-    return managerHierarchyLevel === HIERARCHY.ADMIN || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
+    return forecastingAdmin || managerHierarchyLevel === HIERARCHY.EXEC_MANAGER;
   }
   return false;
 }
 
 /** Manager for Admin + Executive Dashboard Access: sales leaders (1–2), other admins, channel exec/director — not reps/channel reps. */
-function isValidManagerForAdminExecDashboard(managerHierarchyLevel: number) {
+function isValidManagerForAdminExecDashboard(managerRow: {
+  hierarchy_level?: unknown;
+  role?: unknown;
+  admin_has_full_analytics_access?: unknown;
+}) {
+  const managerHierarchyLevel = effectiveUserHierarchyLevel(managerRow);
   return (
-    managerHierarchyLevel === HIERARCHY.ADMIN ||
+    isForecastingAdminUser(managerRow) ||
     managerHierarchyLevel === HIERARCHY.EXEC_MANAGER ||
     managerHierarchyLevel === HIERARCHY.MANAGER ||
     managerHierarchyLevel === HIERARCHY.CHANNEL_EXEC ||
@@ -247,8 +270,7 @@ export async function createUserAction(formData: FormData) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
         if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-        const managerHierarchyLevel = Number(roleToHierarchyLevel(mgr.role));
-        if (!isValidManagerForAdminExecDashboard(managerHierarchyLevel)) {
+        if (!isValidManagerForAdminExecDashboard(mgr)) {
           throw new Error("Invalid manager");
         }
         effectiveManagerId = id;
@@ -258,8 +280,7 @@ export async function createUserAction(formData: FormData) {
         const id = await resolvePublicId("users", parsed.manager_user_public_id);
         const mgr = await getUserById({ orgId, userId: id });
         if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-        const managerHierarchyLevel = roleToHierarchyLevel(mgr.role);
-        if (!isValidSalesManagerForUser(hierarchy_level, Number(managerHierarchyLevel))) {
+        if (!isValidSalesManagerForUser(hierarchy_level, mgr)) {
           throw new Error("Invalid manager");
         }
         effectiveManagerId = id;
@@ -466,8 +487,7 @@ export async function updateUserAction(formData: FormData) {
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
       const mgr = await getUserById({ orgId, userId: id });
       if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-      const managerHierarchyLevel = Number(roleToHierarchyLevel(mgr.role));
-      if (!isValidManagerForAdminExecDashboard(managerHierarchyLevel)) {
+      if (!isValidManagerForAdminExecDashboard(mgr)) {
         throw new Error("Invalid manager");
       }
       effectiveManagerId = id;
@@ -478,8 +498,7 @@ export async function updateUserAction(formData: FormData) {
       if (id === userId) throw new Error("manager_user_id cannot reference the same user");
       const mgr = await getUserById({ orgId, userId: id });
       if (!mgr) throw new Error("manager_user_id must reference a user in this org");
-      const managerHierarchyLevel = roleToHierarchyLevel(mgr.role);
-      if (!isValidSalesManagerForUser(hierarchy_level, Number(managerHierarchyLevel))) {
+      if (!isValidSalesManagerForUser(hierarchy_level, mgr)) {
         throw new Error("Invalid manager");
       }
       effectiveManagerId = id;
