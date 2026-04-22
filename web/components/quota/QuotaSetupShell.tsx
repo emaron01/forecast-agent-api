@@ -195,11 +195,11 @@ export function QuotaSetupShell(props: QuotaSetupShellProps) {
               <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.sumRepQuotas)}</span>
             </div>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-[color:var(--sf-text-secondary)]">Remaining to assign</span>
+              <span className="text-[color:var(--sf-text-secondary)]">Remaining to assign/ Overlay Quota not counted in Annual Quota</span>
               <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(remainingToAssign)}</span>
             </div>
             {props.overlayQuotaTotal > 0 ? (
-              <p className="mt-2 text-sm leading-relaxed text-[color:var(--sf-text-secondary)]">
+              <p className="mt-2 text-base leading-relaxed text-[color:var(--sf-text-secondary)]">
                 includes {fmtMoney(props.overlayQuotaTotal)} overlay quota
                 {props.overlayPartnerNames.length ? ` for ${props.overlayPartnerNames.join(", ")}` : ""} not counted toward your target
               </p>

@@ -268,14 +268,16 @@ async function saveRepQuotasForYearAction(formData: FormData) {
 
   const quotaScope = await listQuotaScopedReps({ orgId: ctx.user.org_id, user: ctx.user });
   const allowedRepIds = new Set(quotaScope.reps.map((r) => Number(r.id)).filter((n) => Number.isFinite(n) && n > 0));
-  let channelLeaderOwnRepId: number | null = null;
+  const selfRows = await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => []);
+  const leaderOwnRepIdRaw = selfRows[0]?.id;
+  const leaderOwnRepId =
+    leaderOwnRepIdRaw != null && Number.isFinite(Number(leaderOwnRepIdRaw)) && Number(leaderOwnRepIdRaw) > 0
+      ? Number(leaderOwnRepIdRaw)
+      : null;
+  if (quotaScope.showTeam && leaderOwnRepId != null) {
+    allowedRepIds.add(leaderOwnRepId);
+  }
   if (isChannelExec(ctx.user) || isChannelManager(ctx.user)) {
-    const selfRows = await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => []);
-    const sid = selfRows[0]?.id;
-    if (sid != null && Number.isFinite(Number(sid)) && Number(sid) > 0) {
-      channelLeaderOwnRepId = Number(sid);
-      allowedRepIds.add(channelLeaderOwnRepId);
-    }
     if (quotaScope.managerRepId != null) {
       allowedRepIds.add(Number(quotaScope.managerRepId));
     }
@@ -341,9 +343,7 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   revalidatePath("/dashboard/executive");
   revalidatePath("/dashboard");
 
-  const savedOwnLeaderQuota =
-    (isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&
-    (channelLeaderOwnRepId != null ? repId === channelLeaderOwnRepId : quotaScope.managerRepId != null && repId === quotaScope.managerRepId);
+  const savedOwnLeaderQuota = leaderOwnRepId != null && repId === leaderOwnRepId;
   if (savedOwnLeaderQuota) {
     redirect(`/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}`);
   }

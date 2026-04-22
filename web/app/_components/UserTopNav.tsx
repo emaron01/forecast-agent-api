@@ -16,10 +16,11 @@ function levelOf(user: AuthUser) {
   return Number(user.hierarchy_level);
 }
 
-function NavLink({ href, label }: { href: string; label: string }) {
+function NavLink({ href, label, prefetch = true }: { href: string; label: string; prefetch?: boolean }) {
   return (
     <Link
       href={href}
+      prefetch={prefetch}
       className="rounded-md px-2 py-0.5 text-[12px] font-medium leading-none text-[color:var(--sf-text-secondary)] hover:bg-[color:var(--sf-surface)] hover:text-[color:var(--sf-text-primary)]"
     >
       {label}
@@ -39,6 +40,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
         : isChannelRole(user)
           ? "/dashboard/channel"
           : "/dashboard";
+  const dashboardNavHref = isChannelRole(user) ? "/dashboard" : dashHref;
   const isChannelLeader = isChannelExec(user) || isChannelManager(user);
   return (
     <header className="overflow-visible border-b border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
@@ -57,7 +59,7 @@ export function UserTopNav({ orgName, user }: { orgName: string; user: AuthUser 
             </div>
           </Link>
           <nav className="ml-3 flex flex-wrap items-center gap-1">
-            <NavLink href={dashHref} label="Dashboard" />
+            <NavLink href={dashboardNavHref} label="Dashboard" prefetch={false} />
             {isAdmin(user) ? <NavLink href="/admin" label="Admin" /> : null}
             {isAdmin(user) && <NavLink href="/analytics" label="Analytics" />}
             {isSalesLeader(user) && <NavLink href="/analytics/quotas/manager" label="Quotas" />}
