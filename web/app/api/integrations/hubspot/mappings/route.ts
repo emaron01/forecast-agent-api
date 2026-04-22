@@ -103,10 +103,10 @@ export async function PUT(req: Request) {
       if (queue && QUEUE_NAME === "opportunity-ingest") {
         try {
           await queue.add(
-            "hubspot-manual-sync",
+            "hubspot-initial-sync",
             { orgId: org.orgId, syncLogId, syncType: "manual" },
             {
-              jobId: `hubspot-mapping-resync_${org.orgId}_${syncLogId}`,
+              jobId: `hubspot-manual-sync_${org.orgId}_${syncLogId}`,
               attempts: 3,
               backoff: { type: "exponential", delay: 5000 },
               removeOnComplete: true,
