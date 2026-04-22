@@ -395,6 +395,9 @@ export default async function AnalyticsQuotasManagerPage({
 
   const quotaScope = await listQuotaScopedReps({ orgId: ctx.user.org_id, user: ctx.user });
   const directReps = quotaScope.reps;
+  const teamLeaderMode = quotaScope.showTeam;
+  const leaderSelfRepRows = teamLeaderMode ? await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => []) : [];
+  const leaderSelfRep = leaderSelfRepRows[0] ?? null;
   const directRepIds = (directReps || [])
     .map((r) => Number(r.id))
     .filter((n) => Number.isFinite(n) && n > 0);
@@ -407,7 +410,12 @@ export default async function AnalyticsQuotasManagerPage({
           }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
         ).repIds
       : directRepIds;
-  const repOptions = (directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })).filter((r) => !!r.public_id);
+  const repOptions = [
+    ...(teamLeaderMode && leaderSelfRep?.public_id
+      ? [{ public_id: String(leaderSelfRep.public_id), rep_name: String(leaderSelfRep.rep_name || "") }]
+      : []),
+    ...(directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })),
+  ].filter((r) => !!r.public_id);
   const selectedRepPublicId = rep_public_id || repOptions[0]?.public_id || "";
 
   const yearPeriods = fiscal_year ? periods : [];
@@ -457,13 +465,6 @@ export default async function AnalyticsQuotasManagerPage({
   ].filter((q) => !!q.p) as Array<{ key: "Q1" | "Q2" | "Q3" | "Q4"; p: QuotaPeriodRow }>;
 
   const channelLeaderMode = isChannelExec(ctx.user) || isChannelManager(ctx.user);
-  const teamLeaderMode = quotaScope.showTeam;
-
-  const leaderSelfRepRows =
-    teamLeaderMode && fiscal_year
-      ? await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => [])
-      : [];
-  const leaderSelfRep = leaderSelfRepRows[0] ?? null;
   const leaderRepPublicId = leaderSelfRep?.public_id ? String(leaderSelfRep.public_id) : "";
   const leaderDisplayName = leaderSelfRep?.rep_name ? String(leaderSelfRep.rep_name) : "You";
 
