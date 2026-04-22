@@ -1,7 +1,6 @@
 "use server";
 
 import { pool } from "../../../lib/pool";
-import { syncManagerQuotas } from "../../../lib/db";
 import { requireAuth } from "../../../lib/auth";
 import { upsertRepQuotaForPeriod } from "../../../lib/quotaService";
 import type { QuotaPeriodRow, QuotaRow } from "../../../lib/quotaModels";
@@ -23,35 +22,6 @@ import {
 import { HIERARCHY, isAdmin, isExecManager, isManager, isRep } from "../../../lib/roleHelpers";
 
 const VALID_QUOTA_LEVELS = [1, 2, 3, 6, 7, 8];
-
-/** Hierarchy levels where a user editing their own quota row should not be overwritten by rollup sync. */
-const MANUAL_QUOTA_ROLLUP_EXEMPT_LEVELS = new Set([0, 1, 2, 6, 7]);
-
-async function shouldMarkSelfQuotaManual(args: {
-  orgId: number;
-  actorUserId: number;
-  actorHierarchyLevel: number | null | undefined;
-  targetRepId: string | null | undefined;
-}): Promise<boolean> {
-  const rid = args.targetRepId ? String(args.targetRepId).trim() : "";
-  if (!rid || !/^\d+$/.test(rid)) return false;
-  const hl = args.actorHierarchyLevel;
-  if (hl == null || !Number.isFinite(Number(hl))) return false;
-  if (!MANUAL_QUOTA_ROLLUP_EXEMPT_LEVELS.has(Number(hl))) return false;
-  const { rows } = await pool.query<{ ok: boolean }>(
-    `
-    SELECT EXISTS (
-      SELECT 1
-        FROM reps r
-       WHERE r.id = $1::bigint
-         AND COALESCE(r.organization_id, r.org_id::bigint) = $2::bigint
-         AND r.user_id = $3::bigint
-    ) AS ok
-    `,
-    [rid, args.orgId, args.actorUserId]
-  );
-  return rows[0]?.ok === true;
-}
 
 async function authOrg() {
   const ctx = await requireAuth();
@@ -242,7 +212,7 @@ function normalizeQuotaRow(rows: any[]): QuotaRow | null {
 
 export async function assignQuotaToUser(
   input: z.input<typeof AssignQuotaToUserSchema>,
-  options?: { skipRollupSync?: boolean }
+  _options?: { skipRollupSync?: boolean }
 ): Promise<ActionResult<QuotaRow>> {
   const a = await authOrg();
   if (!a.ok) return { ok: false, error: a.error };
@@ -253,13 +223,6 @@ export async function assignQuotaToUser(
   const roleLevel = Number(parsed.role_level);
   const repId = parsed.rep_id ? String(parsed.rep_id) : null;
   const managerId = parsed.manager_id ? String(parsed.manager_id) : null;
-
-  const isManual = await shouldMarkSelfQuotaManual({
-    orgId: a.orgId,
-    actorUserId: a.ctx.user.id,
-    actorHierarchyLevel: a.ctx.user.hierarchy_level,
-    targetRepId: repId,
-  });
 
   if (!VALID_QUOTA_LEVELS.includes(roleLevel)) return { ok: false, error: "forbidden" };
   if (!repId) return { ok: false, error: "invalid_rep_id" };
@@ -281,7 +244,7 @@ export async function assignQuotaToUser(
     quotaAmount: parsed.quota_amount,
     annualTarget: parsed.annual_target ?? 0,
     managerId: managerId != null ? Number(managerId) : null,
-    isManual,
+    isAdmin: isAdmin(a.ctx.user),
   });
 
   const { rows } = await pool.query<QuotaRow>(
@@ -318,9 +281,6 @@ export async function assignQuotaToUser(
 
   const out = await normalizeQuotaRow(rows as any[]);
   if (!out) return { ok: false, error: "update_failed" };
-  if (!options?.skipRollupSync) {
-    await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
-  }
   return { ok: true, data: out };
 }
 
@@ -351,13 +311,6 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
   const repId = parsed.rep_id ? String(parsed.rep_id) : null;
   const managerId = parsed.manager_id ? String(parsed.manager_id) : null;
 
-  const isManual = await shouldMarkSelfQuotaManual({
-    orgId: a.orgId,
-    actorUserId: a.ctx.user.id,
-    actorHierarchyLevel: a.ctx.user.hierarchy_level,
-    targetRepId: repId,
-  });
-
   const { rows } = await pool.query<QuotaRow>(
     `
     UPDATE quotas
@@ -369,7 +322,7 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
            annual_target = $8::numeric,
            carry_forward = $9::numeric,
            adjusted_quarterly_quota = $10::numeric,
-           is_manual = $11::boolean,
+          is_manual = true,
            updated_at = NOW()
      WHERE org_id = $1::bigint
        AND id = $2::uuid
@@ -398,15 +351,11 @@ export async function updateQuota(input: z.input<typeof UpdateQuotaSchema>): Pro
       parsed.annual_target ?? null,
       parsed.carry_forward ?? null,
       parsed.adjusted_quarterly_quota ?? null,
-      isManual,
     ]
   );
 
   const row = rows?.[0];
   if (!row) return { ok: false, error: "not_found" };
-  if (repId) {
-    await syncManagerQuotas({ orgId: a.orgId, startRepId: Number(repId) }).catch(() => null);
-  }
   return { ok: true, data: row };
 }
 

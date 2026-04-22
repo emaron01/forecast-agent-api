@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth } from "../../../../lib/auth";
-import { getOrganization, listReps, syncManagerQuotas, syncRepsFromUsers } from "../../../../lib/db";
+import { getOrganization, listReps, syncRepsFromUsers } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
 import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
 import { listCroAttainment, listManagerAttainment, listRepAttainment, listVpAttainment } from "../../../../lib/quotaRollups";
@@ -13,7 +13,7 @@ import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSele
 import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
 import { getHealthAveragesByPeriods } from "../../../../lib/analyticsHealth";
 import { AverageHealthScorePanel } from "../../../_components/AverageHealthScorePanel";
-import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
+import { QuotaSetupClient } from "../../../../components/quota/QuotaSetupClient";
 import { isAdmin } from "../../../../lib/roleHelpers";
 import {
   assignQuotaToUser,
@@ -222,8 +222,6 @@ async function saveRepQuotaSetupAction(formData: FormData) {
     }, { skipRollupSync: true });
     if ("error" in r) redirect(`/analytics/quotas/admin?error=${encodeURIComponent(r.error)}`);
   }
-
-  await syncManagerQuotas({ orgId: ctx.user.org_id, startRepId: repId }).catch(() => null);
 
   revalidatePath("/analytics/quotas/admin");
 
@@ -511,11 +509,9 @@ export default async function AnalyticsQuotasAdminPage({
               </div>
             </form>
 
-            <RepQuotaSetupClient
+            <QuotaSetupClient
               action={saveRepQuotaSetupAction}
               fiscalYear={fiscal_year}
-              execPublicId={exec_public_id}
-              managerPublicId={manager_public_id}
               repPublicId={rep_public_id}
               repName={selectedRep?.rep_name || ""}
               initialAnnualQuota={initialAnnualQuotaNum}
@@ -535,14 +531,18 @@ export default async function AnalyticsQuotasAdminPage({
                   existing && existing.quota_amount != null && Number.isFinite(Number(existing.quota_amount)) ? Number(existing.quota_amount) : 0;
                 return {
                   key: q.key,
-                  label: q.label,
-                  fiscalQuarter: q.fiscalQuarter,
+                  periodId: q.p ? Number(q.p.id) : undefined,
+                  periodLabel: q.label,
+                  initialQuotaAmount: quotaDefaultNum,
                   initialStartDate: startDefault,
                   initialEndDate: endDefault,
-                  initialQuotaAmount: quotaDefaultNum,
                   disabled: !selectedRep || !fiscal_year,
                 };
               })}
+              hiddenFields={{
+                exec_public_id,
+                manager_public_id,
+              }}
             />
           </div>
 

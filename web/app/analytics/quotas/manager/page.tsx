@@ -2,16 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireAuth, type AuthUser } from "../../../../lib/auth";
-import { getOrganization, syncManagerQuotas } from "../../../../lib/db";
+import { getOrganization } from "../../../../lib/db";
 import { pool } from "../../../../lib/pool";
-import { protectLeaderQuotaRows, upsertRepQuotaForPeriod } from "../../../../lib/quotaService";
+import { upsertRepQuotaForPeriod } from "../../../../lib/quotaService";
 import type { QuotaPeriodRow, QuotaRow } from "../../../../lib/quotaModels";
 import { UserTopNav } from "../../../_components/UserTopNav";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
 import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
-import { ExportToExcelButton } from "../../../_components/ExportToExcelButton";
-import { RepQuotaSetupClient } from "./RepQuotaSetupClient";
+import { QuotaSetupShell } from "../../../../components/quota/QuotaSetupShell";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import {
   isChannelExec,
@@ -307,62 +306,35 @@ async function saveRepQuotasForYearAction(formData: FormData) {
     );
   }
 
-  const manualLevels = new Set([0, 1, 2, 6, 7]);
-  let quotaIsManual = false;
-  const hl = ctx.user.hierarchy_level;
-  if (hl != null && Number.isFinite(Number(hl)) && manualLevels.has(Number(hl))) {
-    const chk = await pool.query<{ ok: boolean }>(
-      `
-      SELECT EXISTS (
-        SELECT 1
-          FROM reps r
-         WHERE r.id = $1::bigint
-           AND r.organization_id = $2::bigint
-           AND r.user_id = $3::bigint
-      ) AS ok
-      `,
-      [repId, ctx.user.org_id, ctx.user.id]
-    );
-    quotaIsManual = chk.rows[0]?.ok === true;
-  }
-
   const quarterAssignments = [
     { quota_period_id: String(q1p.id), quota_amount: q1_quota },
     { quota_period_id: String(q2p.id), quota_amount: q2_quota },
     { quota_period_id: String(q3p.id), quota_amount: q3_quota },
     { quota_period_id: String(q4p.id), quota_amount: q4_quota },
   ];
-  for (const qa of quarterAssignments) {
-    await upsertRepQuotaForPeriod({
-      orgId: ctx.user.org_id,
-      repId,
-      quotaPeriodId: Number(qa.quota_period_id),
-      managerId: quotaScope.managerRepId ?? null,
-      quotaAmount: qa.quota_amount,
-      annualTarget,
-      isManual: quotaIsManual,
-    });
-  }
-
-  if (
-    (isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&
-    channelLeaderOwnRepId != null &&
-    repId !== channelLeaderOwnRepId
-  ) {
-    const leaderQuotaRows = await listRepQuotasByPeriodIds({
-      orgId: ctx.user.org_id,
-      repId: channelLeaderOwnRepId,
-      quotaPeriodIds: quarterAssignments.map((qa) => qa.quota_period_id),
-    }).catch(() => []);
-    const leaderHasQuota =
-      leaderQuotaRows.some((q) => Number((q as any).annual_target || 0) > 0) ||
-      leaderQuotaRows.some((q) => Number(q.quota_amount || 0) > 0);
-    if (leaderHasQuota) {
-      await protectLeaderQuotaRows({ orgId: ctx.user.org_id, leaderRepId: channelLeaderOwnRepId });
+  try {
+    for (const qa of quarterAssignments) {
+      await upsertRepQuotaForPeriod({
+        orgId: ctx.user.org_id,
+        repId,
+        quotaPeriodId: Number(qa.quota_period_id),
+        managerId: quotaScope.managerRepId ?? null,
+        quotaAmount: qa.quota_amount,
+        annualTarget,
+        isAdmin: false,
+      });
     }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "save_failed";
+    if (message === "manager_quota_required") {
+      redirect(
+        `/analytics/quotas/manager?fiscal_year=${encodeURIComponent(fiscal_year)}&rep_public_id=${encodeURIComponent(rep_public_id)}&error=${encodeURIComponent(
+          "manager quota required"
+        )}`
+      );
+    }
+    throw error;
   }
-
-  await syncManagerQuotas({ orgId: ctx.user.org_id, startRepId: repId }).catch(() => null);
 
   revalidatePath("/analytics/quotas/manager");
 
@@ -434,7 +406,6 @@ export default async function AnalyticsQuotasManagerPage({
       : directRepIds;
   const repOptions = (directReps || []).map((r) => ({ public_id: String(r.public_id || ""), rep_name: String(r.rep_name || "") })).filter((r) => !!r.public_id);
   const selectedRepPublicId = rep_public_id || repOptions[0]?.public_id || "";
-  const selectedRepName = repOptions.find((r) => r.public_id === selectedRepPublicId)?.rep_name || "";
 
   const yearPeriods = fiscal_year ? periods : [];
   const byQuarter = new Map<string, QuotaPeriodRow>();
@@ -483,9 +454,10 @@ export default async function AnalyticsQuotasManagerPage({
   ].filter((q) => !!q.p) as Array<{ key: "Q1" | "Q2" | "Q3" | "Q4"; p: QuotaPeriodRow }>;
 
   const channelLeaderMode = isChannelExec(ctx.user) || isChannelManager(ctx.user);
+  const teamLeaderMode = quotaScope.showTeam;
 
   const leaderSelfRepRows =
-    channelLeaderMode && fiscal_year
+    teamLeaderMode && fiscal_year
       ? await listSelfRep({ orgId: ctx.user.org_id, userId: ctx.user.id }).catch(() => [])
       : [];
   const leaderSelfRep = leaderSelfRepRows[0] ?? null;
@@ -527,7 +499,7 @@ export default async function AnalyticsQuotasManagerPage({
         ? Number(quotaScope.managerRepId)
         : null;
   const leaderQuotas =
-    channelLeaderMode && leaderQuotaRepId && quarterPeriodIds.length
+    teamLeaderMode && leaderQuotaRepId && quarterPeriodIds.length
       ? await listRepQuotasByPeriodIds({
           orgId: ctx.user.org_id,
           repId: leaderQuotaRepId,
@@ -540,39 +512,24 @@ export default async function AnalyticsQuotasManagerPage({
     if (!k) continue;
     if (!leaderQuotaByPeriodId.has(k)) leaderQuotaByPeriodId.set(k, q);
   }
-  const leaderExistingAnnual = (() => {
-    for (const q of leaderQuotas || []) {
-      const n = (q as any).annual_target;
-      const v = n == null ? null : Number(n);
-      if (v != null && Number.isFinite(v) && v > 0) return v;
-    }
-    return null;
-  })();
   const leaderQuarterTotal = quarters.reduce(
     (s, q) => s + (Number(leaderQuotaByPeriodId.get(String(q.p.id))?.quota_amount || 0) || 0),
     0
   );
-  const leaderHasQuota = (leaderExistingAnnual != null && leaderExistingAnnual > 0) || leaderQuarterTotal > 0;
-  const channelLeaderGate = channelLeaderMode && Boolean(fiscal_year) && !leaderHasQuota;
-
-  const leaderYourQuotaDisplay =
-    leaderQuarterTotal > 0
-      ? leaderQuarterTotal
-      : leaderExistingAnnual != null && leaderExistingAnnual > 0
-        ? leaderExistingAnnual
-        : 0;
+  const leaderHasQuota = leaderQuotas.some((q) => Number((q as any).annual_target || 0) > 0) || leaderQuarterTotal > 0;
 
   const quarterIds = quarters.map((q) => String(q.p.id));
 
   const repQuotaRows =
     fiscal_year && directRepIds.length && quarterIds.length
       ? await pool
-          .query<{ rep_id: string; quota_period_id: string; quota_amount: number }>(
+          .query<{ rep_id: string; quota_period_id: string; quota_amount: number; annual_target: number | null }>(
             `
             SELECT
               q.rep_id::text AS rep_id,
               q.quota_period_id::text AS quota_period_id,
-              COALESCE(q.quota_amount, 0)::float8 AS quota_amount
+              COALESCE(q.quota_amount, 0)::float8 AS quota_amount,
+              q.annual_target::float8 AS annual_target
             FROM quotas q
             JOIN reps r
               ON r.id = q.rep_id
@@ -655,15 +612,15 @@ export default async function AnalyticsQuotasManagerPage({
     quotaByRepPeriod.set(k, Number((r as any).quota_amount || 0) || 0);
   }
 
-  let sumRepQuotasChannel = 0;
+  let sumRepQuotas = 0;
   let overlayQuotaTotalChannel = 0;
-  if (channelLeaderMode && leaderHasQuota && quarters.length) {
+  if (teamLeaderMode && leaderHasQuota && quarters.length) {
     for (const rep of directReps || []) {
       let fy = 0;
       for (const q of quarters) {
         fy += quotaByRepPeriod.get(`${String(rep.id)}|${String(q.p.id)}`) || 0;
       }
-      sumRepQuotasChannel += fy;
+      sumRepQuotas += fy;
       const uid = rep.user_id != null && Number.isFinite(Number(rep.user_id)) ? Number(rep.user_id) : null;
       if (uid != null && overlayUserIds.has(uid)) overlayQuotaTotalChannel += fy;
     }
@@ -744,259 +701,71 @@ export default async function AnalyticsQuotasManagerPage({
           </form>
         </section>
 
-        {fiscal_year && channelLeaderMode ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Your Annual Quota</h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Set your personal quota target before assigning quotas to your team.
-            </p>
-            {!leaderQuotaRepId || !leaderRepPublicId ? (
-              <p className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">
-                Your account needs an active rep profile linked to this organization before you can save a personal quota.
-              </p>
-            ) : !quarters.length ? (
-              <p className="mt-3 text-sm text-[color:var(--sf-text-secondary)]">
-                Missing quota periods for this fiscal year (Q1–Q4). Ask Admin to set quarter dates in quota periods.
-              </p>
-            ) : (
-              <RepQuotaSetupClient
-                key={`leader-quota-${fiscal_year}-${leaderRepPublicId}-${leaderQuotaRepId ?? 0}`}
-                action={saveRepQuotasForYearAction}
-                fiscalYear={fiscal_year}
-                repPublicId={leaderRepPublicId}
-                repName={leaderDisplayName}
-                submitButtonLabel="Save My Quota"
-                initialAnnualQuota={leaderExistingAnnual}
-                quarters={[
-                  {
-                    key: "q1",
-                    label: "1st Quarter",
-                    periodLabel: q1p ? `${dateOnly(q1p.period_start)} → ${dateOnly(q1p.period_end)}` : "Missing quarter period",
-                    initialQuotaAmount: q1p ? Number(leaderQuotaByPeriodId.get(String(q1p.id))?.quota_amount || 0) || 0 : 0,
-                    disabled: !q1p,
-                  },
-                  {
-                    key: "q2",
-                    label: "2nd Quarter",
-                    periodLabel: q2p ? `${dateOnly(q2p.period_start)} → ${dateOnly(q2p.period_end)}` : "Missing quarter period",
-                    initialQuotaAmount: q2p ? Number(leaderQuotaByPeriodId.get(String(q2p.id))?.quota_amount || 0) || 0 : 0,
-                    disabled: !q2p,
-                  },
-                  {
-                    key: "q3",
-                    label: "3rd Quarter",
-                    periodLabel: q3p ? `${dateOnly(q3p.period_start)} → ${dateOnly(q3p.period_end)}` : "Missing quarter period",
-                    initialQuotaAmount: q3p ? Number(leaderQuotaByPeriodId.get(String(q3p.id))?.quota_amount || 0) || 0 : 0,
-                    disabled: !q3p,
-                  },
-                  {
-                    key: "q4",
-                    label: "4th Quarter",
-                    periodLabel: q4p ? `${dateOnly(q4p.period_start)} → ${dateOnly(q4p.period_end)}` : "Missing quarter period",
-                    initialQuotaAmount: q4p ? Number(leaderQuotaByPeriodId.get(String(q4p.id))?.quota_amount || 0) || 0 : 0,
-                    disabled: !q4p,
-                  },
-                ]}
-              />
-            )}
-          </section>
-        ) : null}
-
-        {channelLeaderGate ? (
-          <section className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-            <div className="text-sm font-medium text-amber-950 dark:text-amber-100">
-              Set your own quota before assigning team quotas
-            </div>
-          </section>
-        ) : null}
-
         {!fiscal_year ? (
           <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
             <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a fiscal year to set rep quotas by quarter.</p>
           </section>
         ) : null}
 
-        {fiscal_year && quotaScope.showTeam && !(channelLeaderMode && !leaderHasQuota) ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quota setup</h2>
-            <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-              Rep: <span className="font-medium">{selectedRepName || "—"}</span> · Fiscal year:{" "}
-              <span className="font-mono text-xs">{fiscal_year}</span>
-            </p>
-            <RepQuotaSetupClient
-              key={`rep-quota-${fiscal_year}-${selectedRepPublicId}`}
-              action={saveRepQuotasForYearAction}
-              fiscalYear={fiscal_year}
-              repPublicId={selectedRepPublicId}
-              repName={selectedRepName}
-              initialAnnualQuota={existingAnnualQuota}
-              quarters={[
-                {
-                  key: "q1",
-                  label: "1st Quarter",
-                  periodLabel: q1p ? `${dateOnly(q1p.period_start)} → ${dateOnly(q1p.period_end)}` : "Missing quarter period",
-                  initialQuotaAmount: q1p ? Number(quotaByPeriodId.get(String(q1p.id))?.quota_amount || 0) || 0 : 0,
-                  disabled: !q1p,
-                },
-                {
-                  key: "q2",
-                  label: "2nd Quarter",
-                  periodLabel: q2p ? `${dateOnly(q2p.period_start)} → ${dateOnly(q2p.period_end)}` : "Missing quarter period",
-                  initialQuotaAmount: q2p ? Number(quotaByPeriodId.get(String(q2p.id))?.quota_amount || 0) || 0 : 0,
-                  disabled: !q2p,
-                },
-                {
-                  key: "q3",
-                  label: "3rd Quarter",
-                  periodLabel: q3p ? `${dateOnly(q3p.period_start)} → ${dateOnly(q3p.period_end)}` : "Missing quarter period",
-                  initialQuotaAmount: q3p ? Number(quotaByPeriodId.get(String(q3p.id))?.quota_amount || 0) || 0 : 0,
-                  disabled: !q3p,
-                },
-                {
-                  key: "q4",
-                  label: "4th Quarter",
-                  periodLabel: q4p ? `${dateOnly(q4p.period_start)} → ${dateOnly(q4p.period_end)}` : "Missing quarter period",
-                  initialQuotaAmount: q4p ? Number(quotaByPeriodId.get(String(q4p.id))?.quota_amount || 0) || 0 : 0,
-                  disabled: !q4p,
-                },
-              ]}
-            />
-          </section>
-        ) : null}
-
         {fiscal_year ? (
-          <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas vs Closed Won (by quarter)</h2>
-                <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                  Direct reports · Fiscal year: <span className="font-mono text-xs">{fiscal_year}</span>
-                </p>
-              </div>
-            </div>
-
-            {!quarters.length ? (
-              <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">
-                Missing quota periods for this fiscal year (Q1–Q4). Ask Admin to set quarter dates in quota periods.
-              </div>
-            ) : channelLeaderMode && !leaderHasQuota ? (
-              <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">
-                Set your personal annual quota above to view and edit team quotas.
-              </div>
-            ) : !directReps.length ? (
-              <div className="mt-4 text-sm text-[color:var(--sf-text-secondary)]">No direct-report reps found.</div>
-            ) : (
-              <>
-                <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-                  <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-                      <tr>
-                        <th className="px-4 py-3">rep</th>
-                        {quarters.map((q) => (
-                          <th key={q.key} className="px-4 py-3">
-                            <div className="font-semibold text-[color:var(--sf-text-primary)]">{q.key}</div>
-                            <div className="mt-0.5 text-[11px] font-normal text-[color:var(--sf-text-secondary)]">
-                              {dateOnly(q.p.period_start)} → {dateOnly(q.p.period_end)}
-                            </div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {directReps.map((rep) => {
-                        const uid =
-                          rep.user_id != null && Number.isFinite(Number(rep.user_id)) ? Number(rep.user_id) : null;
-                        const isOverlay = uid != null && overlayUserIds.has(uid);
-                        return (
-                          <tr key={rep.public_id} className="border-t border-[color:var(--sf-border)]">
-                            <td className="px-4 py-3 text-[color:var(--sf-text-primary)]">
-                              <div className="flex flex-wrap items-baseline gap-x-1.5 font-medium">
-                                <span>{rep.rep_name || "—"}</span>
-                                {isOverlay ? (
-                                  <span className="text-xs font-medium text-[color:var(--sf-text-secondary)]">· Overlay</span>
-                                ) : null}
-                              </div>
-                              {isOverlay ? (
-                                <div className="mt-0.5 text-[11px] font-normal text-[color:var(--sf-text-secondary)]">
-                                  Personal target — not included in your rollup
-                                </div>
-                              ) : null}
-                            </td>
-                            {quarters.map((q) => {
-                              const pid = String(q.p.id);
-                              const repId = String(rep.id);
-                              const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                              return (
-                                <td key={`${rep.public_id}:${q.key}`} className="px-4 py-3 align-top">
-                                  <div className="grid gap-1">
-                                    <div className="text-[11px] text-[color:var(--sf-text-secondary)]">quota</div>
-                                    <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(quota)}</div>
-                                    {!channelLeaderClosedWon ? (
-                                      <>
-                                        <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">closed won</div>
-                                        <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                                          {fmtMoney(wonByRepPeriod.get(`${repId}|${pid}`) || 0)}
-                                        </div>
-                                      </>
-                                    ) : null}
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {channelLeaderMode && leaderHasQuota ? (
-                  <div className="mt-5 border-t border-[color:var(--sf-border)] pt-4 text-sm text-[color:var(--sf-text-primary)]">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="text-[color:var(--sf-text-secondary)]">Your Quota</span>
-                      <span className="font-mono font-semibold">{fmtMoney(leaderYourQuotaDisplay)}</span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-baseline justify-between gap-2">
-                      <span className="text-[color:var(--sf-text-secondary)]">Sum of Rep Quotas</span>
-                      <span className="font-mono font-semibold">{fmtMoney(sumRepQuotasChannel)}</span>
-                    </div>
-                    {overlayQuotaTotalChannel > 0 ? (
-                      <p className="mt-2 text-xs leading-relaxed text-[color:var(--sf-text-secondary)]">
-                        (includes {fmtMoney(overlayQuotaTotalChannel)} overlay quota
-                        {overlayPartnerNamesForNote.length ? ` for ${overlayPartnerNamesForNote.join(", ")}` : ""} not counted toward your
-                        target)
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <div className="mt-3 flex items-center justify-end">
-                  <ExportToExcelButton
-                    fileName={`Team Quotas - Quota vs Won - ${fiscal_year}`}
-                    sheets={[
-                      {
-                        name: "Quota vs Won",
-                        rows: directReps.map((rep) => {
-                          const out: Record<string, any> = { rep: rep.rep_name || "—" };
-                          for (const q of quarters) {
-                            const pid = String(q.p.id);
-                            const repId = String(rep.id);
-                            const quota = quotaByRepPeriod.get(`${repId}|${pid}`) || 0;
-                            const won = channelLeaderClosedWon
-                              ? territoryWonByPeriodId!.get(pid) || 0
-                              : wonByRepPeriod.get(`${repId}|${pid}`) || 0;
-                            out[`${q.key}_quota`] = quota;
-                            out[`${q.key}_won`] = won;
-                          }
-                          return out;
-                        }) as any,
-                      },
-                    ]}
-                  />
-                </div>
-              </>
-            )}
-          </section>
+          <QuotaSetupShell
+            fiscalYear={fiscal_year}
+            quotaPeriods={quarters.map((q) => ({
+              id: Number(q.p.id),
+              fiscal_quarter: q.key.replace("Q", ""),
+              period_name: q.key,
+              period_start: q.p.period_start,
+              period_end: q.p.period_end,
+            }))}
+            viewer={{
+              repId: leaderQuotaRepId,
+              repPublicId: leaderRepPublicId,
+              repName: leaderDisplayName,
+              hierarchyLevel: Number(ctx.user.hierarchy_level),
+              isAdmin: false,
+            }}
+            leaderQuota={quarters.map((q) => ({
+              periodId: Number(q.p.id),
+              amount: Number(leaderQuotaByPeriodId.get(String(q.p.id))?.quota_amount || 0) || 0,
+              annualTarget: leaderQuotaByPeriodId.get(String(q.p.id))?.annual_target ?? null,
+            }))}
+            leaderHasQuota={leaderHasQuota}
+            leaderQuarterTotal={leaderQuarterTotal}
+            reps={directReps.map((rep) => ({
+              repId: Number(rep.id),
+              repPublicId: String(rep.public_id || ""),
+              repName: String(rep.rep_name || ""),
+              userId: rep.user_id != null && Number.isFinite(Number(rep.user_id)) ? Number(rep.user_id) : null,
+              hierarchyLevel: rep.hierarchy_level == null ? null : Number(rep.hierarchy_level),
+              managerRepId: quotaScope.managerRepId ?? null,
+              quota: quarters.map((q) => ({
+                periodId: Number(q.p.id),
+                amount: quotaByRepPeriod.get(`${String(rep.id)}|${String(q.p.id)}`) || 0,
+                annualTarget: rep.public_id === selectedRepPublicId ? existingAnnualQuota : null,
+              })),
+              wonByPeriod: quarters.map((q) => ({
+                periodId: Number(q.p.id),
+                wonAmount: wonByRepPeriod.get(`${String(rep.id)}|${String(q.p.id)}`) || 0,
+              })),
+              isOverlay:
+                rep.user_id != null && Number.isFinite(Number(rep.user_id)) ? overlayUserIds.has(Number(rep.user_id)) : false,
+              managerHasQuota: leaderHasQuota,
+            }))}
+            selectedRepPublicId={selectedRepPublicId}
+            sumRepQuotas={sumRepQuotas}
+            overlayQuotaTotal={overlayQuotaTotalChannel}
+            overlayPartnerNames={overlayPartnerNamesForNote}
+            saveAction={saveRepQuotasForYearAction}
+            hideClosedWonValues={channelLeaderMode}
+            groupWonByPeriod={
+              territoryWonByPeriodId
+                ? quarters.map((q) => ({
+                    periodId: Number(q.p.id),
+                    wonAmount: territoryWonByPeriodId.get(String(q.p.id)) || 0,
+                  }))
+                : []
+            }
+          />
         ) : null}
 
       </main>

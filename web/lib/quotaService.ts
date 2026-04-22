@@ -1,9 +1,14 @@
 import { pool } from "./pool";
 
-async function resolveRepRoleLevel(args: { orgId: number; repId: number }): Promise<number> {
-  const { rows } = await pool.query<{ hierarchy_level: number | null }>(
+async function resolveRepQuotaContext(args: { orgId: number; repId: number }): Promise<{
+  roleLevel: number;
+  managerRepId: number | null;
+}> {
+  const { rows } = await pool.query<{ hierarchy_level: number | null; manager_rep_id: number | null }>(
     `
-    SELECT u.hierarchy_level
+    SELECT
+      u.hierarchy_level,
+      r.manager_rep_id
       FROM reps r
       LEFT JOIN users u
         ON u.id = r.user_id
@@ -15,7 +20,47 @@ async function resolveRepRoleLevel(args: { orgId: number; repId: number }): Prom
     [args.orgId, args.repId]
   );
   const roleLevel = Number(rows?.[0]?.hierarchy_level);
-  return Number.isFinite(roleLevel) ? roleLevel : 3;
+  const managerRepId = Number(rows?.[0]?.manager_rep_id);
+  return {
+    roleLevel: Number.isFinite(roleLevel) ? roleLevel : 3,
+    managerRepId: Number.isFinite(managerRepId) && managerRepId > 0 ? managerRepId : null,
+  };
+}
+
+async function resolveFiscalYearForPeriod(args: { orgId: number; quotaPeriodId: number }): Promise<string | null> {
+  const { rows } = await pool.query<{ fiscal_year: string | null }>(
+    `
+    SELECT fiscal_year
+      FROM quota_periods
+     WHERE org_id = $1::bigint
+       AND id = $2::bigint
+     LIMIT 1
+    `,
+    [args.orgId, args.quotaPeriodId]
+  );
+  const fiscalYear = String(rows?.[0]?.fiscal_year || "").trim();
+  return fiscalYear || null;
+}
+
+async function checkManagerHasQuota(args: {
+  orgId: number;
+  managerRepId: number;
+  fiscalYear: string;
+}): Promise<boolean> {
+  const { rows } = await pool.query<{ has_quota: boolean }>(
+    `
+    SELECT COALESCE(SUM(q.quota_amount), 0) > 0 AS has_quota
+      FROM quotas q
+      JOIN quota_periods qp
+        ON qp.id = q.quota_period_id
+       AND qp.org_id = q.org_id
+     WHERE q.org_id = $1::bigint
+       AND q.rep_id = $2::bigint
+       AND qp.fiscal_year = $3
+    `,
+    [args.orgId, args.managerRepId, args.fiscalYear]
+  );
+  return rows?.[0]?.has_quota === true;
 }
 
 export async function upsertRepQuotaForPeriod(args: {
@@ -25,9 +70,21 @@ export async function upsertRepQuotaForPeriod(args: {
   quotaAmount: number;
   annualTarget: number;
   managerId?: number | null;
-  isManual?: boolean;
+  isAdmin?: boolean;
 }): Promise<void> {
-  const roleLevel = await resolveRepRoleLevel({ orgId: args.orgId, repId: args.repId });
+  const { roleLevel, managerRepId } = await resolveRepQuotaContext({ orgId: args.orgId, repId: args.repId });
+  const fiscalYear = await resolveFiscalYearForPeriod({ orgId: args.orgId, quotaPeriodId: args.quotaPeriodId });
+  if (!args.isAdmin && (roleLevel === 3 || roleLevel === 8) && managerRepId != null && fiscalYear) {
+    const managerHasQuota = await checkManagerHasQuota({
+      orgId: args.orgId,
+      managerRepId,
+      fiscalYear,
+    });
+    if (!managerHasQuota) {
+      throw new Error("manager_quota_required");
+    }
+  }
+
   await pool.query(
     `
     INSERT INTO quotas (
@@ -66,7 +123,7 @@ export async function upsertRepQuotaForPeriod(args: {
       args.quotaPeriodId,
       args.quotaAmount,
       args.annualTarget,
-      args.isManual === true,
+      true,
     ]
   );
 }

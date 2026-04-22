@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { Modal } from "../../_components/Modal";
-import { deleteRepQuotaSet, listQuotaPeriods, listQuotasByRep, upsertRepQuotaSet } from "../../actions/quotas";
+import { deleteRepQuotaSet, listQuotaPeriods, listQuotasByRep } from "../../actions/quotas";
 import { requireOrgContext } from "../../../../lib/auth";
 import { listReps, syncRepsFromUsers } from "../../../../lib/db";
-import { RepQuotaSetFormClient } from "./RepQuotaSetFormClient";
+import { pool } from "../../../../lib/pool";
+import { upsertRepQuotaForPeriod } from "../../../../lib/quotaService";
+import type { QuotaPeriodRow } from "../../../../lib/quotaModels";
+import { FiscalYearSelector } from "../../../../components/quotas/FiscalYearSelector";
+import { QuotaSetupShell } from "../../../../components/quota/QuotaSetupShell";
 import { isAdmin } from "../../../../lib/roleHelpers";
 
 function repLabel(r: any) {
@@ -19,13 +22,6 @@ function sp(v: string | string[] | undefined) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-function closeHref(baseParams?: Record<string, string>) {
-  const base = `/admin/analytics/quotas`;
-  const p = new URLSearchParams(baseParams || {});
-  const qs = p.toString();
-  return qs ? `${base}?${qs}` : base;
-}
-
 function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return "";
@@ -36,16 +32,114 @@ function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
   return "";
 }
 
-async function upsertRepQuotaSetAction(formData: FormData) {
-  "use server";
-  const rep_id = String(formData.get("rep_id") || "").trim();
-  const fiscal_year = String(formData.get("fiscal_year") || "").trim();
-  const returnTo =
-    rep_id && fiscal_year ? `/admin/analytics/quotas?rep_id=${encodeURIComponent(rep_id)}&fiscal_year=${encodeURIComponent(fiscal_year)}` : "/admin/analytics/quotas";
+async function resolveRepByPublicId(args: { orgId: number; repPublicId: string }) {
+  const { rows } = await pool.query<{
+    id: number;
+    public_id: string;
+    rep_name: string | null;
+    display_name: string | null;
+    user_id: number | null;
+    hierarchy_level: number | null;
+    manager_rep_id: number | null;
+  }>(
+    `
+    SELECT
+      r.id,
+      r.public_id::text AS public_id,
+      r.rep_name,
+      r.display_name,
+      r.user_id,
+      u.hierarchy_level,
+      r.manager_rep_id
+    FROM reps r
+    LEFT JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = r.organization_id
+    WHERE r.organization_id = $1::bigint
+      AND r.public_id::text = $2
+    LIMIT 1
+    `,
+    [args.orgId, args.repPublicId]
+  );
+  return rows?.[0] ?? null;
+}
 
-  await upsertRepQuotaSet(formData);
+async function saveQuotaSetupAction(formData: FormData) {
+  "use server";
+  const rep_public_id = String(formData.get("rep_public_id") || "").trim();
+  const fiscal_year = String(formData.get("fiscal_year") || "").trim();
+  const annual_target_raw = String(formData.get("annual_target") || "").trim();
+  const annual_target = annual_target_raw ? Number(annual_target_raw) : NaN;
+  const q1_quota = Number(formData.get("q1_quota") || 0) || 0;
+  const q2_quota = Number(formData.get("q2_quota") || 0) || 0;
+  const q3_quota = Number(formData.get("q3_quota") || 0) || 0;
+  const q4_quota = Number(formData.get("q4_quota") || 0) || 0;
+
+  if (!rep_public_id || !fiscal_year) redirect("/admin/analytics/quotas?error=rep_and_year_required");
+  if (!Number.isFinite(annual_target) || annual_target <= 0) {
+    redirect(
+      `/admin/analytics/quotas?error=${encodeURIComponent("annual quota must be a positive number")}&fiscal_year=${encodeURIComponent(
+        fiscal_year
+      )}`
+    );
+  }
+
+  const quarterSum = q1_quota + q2_quota + q3_quota + q4_quota;
+  if (quarterSum - annual_target > 1e-6) {
+    redirect(
+      `/admin/analytics/quotas?error=${encodeURIComponent("all 4 quarters cannot exceed the annual quota")}&fiscal_year=${encodeURIComponent(
+        fiscal_year
+      )}`
+    );
+  }
+
+  const { ctx, orgId } = await requireOrgContext();
+  if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
+
+  const rep = await resolveRepByPublicId({ orgId, repPublicId: rep_public_id });
+  if (!rep?.id) {
+    redirect(
+      `/admin/analytics/quotas?error=${encodeURIComponent("rep not found")}&fiscal_year=${encodeURIComponent(fiscal_year)}`
+    );
+  }
+
+  const periods = await listQuotaPeriods().catch(() => []);
+  const byQuarter = new Map<"1" | "2" | "3" | "4", QuotaPeriodRow>();
+  for (const p of periods || []) {
+    if (String((p as any).fiscal_year || "") !== fiscal_year) continue;
+    const q = quarterNumberFromAny((p as any).fiscal_quarter) || quarterNumberFromAny((p as any).period_name);
+    if (q === "1" || q === "2" || q === "3" || q === "4") {
+      if (!byQuarter.has(q)) byQuarter.set(q, p as QuotaPeriodRow);
+    }
+  }
+  const assignments = [
+    { p: byQuarter.get("1"), amount: q1_quota },
+    { p: byQuarter.get("2"), amount: q2_quota },
+    { p: byQuarter.get("3"), amount: q3_quota },
+    { p: byQuarter.get("4"), amount: q4_quota },
+  ];
+  if (assignments.some((a) => !a.p?.id)) {
+    redirect(
+      `/admin/analytics/quotas?error=${encodeURIComponent("missing_quarter_periods")}&fiscal_year=${encodeURIComponent(fiscal_year)}`
+    );
+  }
+
+  for (const a of assignments) {
+    await upsertRepQuotaForPeriod({
+      orgId,
+      repId: Number(rep.id),
+      quotaPeriodId: Number(a.p!.id),
+      quotaAmount: a.amount,
+      annualTarget: annual_target,
+      managerId: rep.manager_rep_id == null ? null : Number(rep.manager_rep_id),
+      isAdmin: true,
+    });
+  }
+
   revalidatePath("/admin/analytics/quotas");
-  redirect(returnTo);
+  redirect(
+    `/admin/analytics/quotas?rep_id=${encodeURIComponent(String(rep.id))}&fiscal_year=${encodeURIComponent(fiscal_year)}`
+  );
 }
 
 async function deleteRepQuotaSetAction(formData: FormData) {
@@ -68,7 +162,6 @@ export default async function QuotasPage({
   const { ctx, orgId } = await requireOrgContext();
   if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
-  const modal = sp(searchParams.modal) || "";
   const rep_id = sp(searchParams.rep_id) || "";
   const fiscal_year = sp(searchParams.fiscal_year) || "";
   const error = sp(searchParams.error) || "";
@@ -118,6 +211,167 @@ export default async function QuotasPage({
   const annualTargetNum = annualTargetAny != null && Number.isFinite(Number(annualTargetAny)) ? Number(annualTargetAny) : null;
 
   const selectedRepName = rep_id ? repLabel(reps.find((r) => String(r.id) === String(rep_id))) : "";
+  const selectedRepDetail =
+    rep_id && /^\d+$/.test(rep_id)
+      ? await pool
+          .query<{
+            id: number;
+            public_id: string;
+            rep_name: string | null;
+            display_name: string | null;
+            user_id: number | null;
+            hierarchy_level: number | null;
+            manager_rep_id: number | null;
+          }>(
+            `
+            SELECT
+              r.id,
+              r.public_id::text AS public_id,
+              r.rep_name,
+              r.display_name,
+              r.user_id,
+              u.hierarchy_level,
+              r.manager_rep_id
+            FROM reps r
+            LEFT JOIN users u
+              ON u.id = r.user_id
+             AND u.org_id = r.organization_id
+            WHERE r.organization_id = $1::bigint
+              AND r.id = $2::bigint
+            LIMIT 1
+            `,
+            [orgId, rep_id]
+          )
+          .then((r) => r.rows?.[0] ?? null)
+          .catch(() => null)
+      : null;
+
+  const quarterIds = [q1PeriodId, q2PeriodId, q3PeriodId, q4PeriodId].filter(Boolean).map(Number);
+  const selectedRepWonRows =
+    selectedRepDetail?.id && quarterIds.length
+      ? await pool
+          .query<{ quota_period_id: string; won_amount: number }>(
+            `
+            WITH periods AS (
+              SELECT id, period_start::date AS period_start, period_end::date AS period_end
+                FROM quota_periods
+               WHERE org_id = $1::bigint
+                 AND id = ANY($2::bigint[])
+            ),
+            deals AS (
+              SELECT
+                o.rep_id,
+                COALESCE(o.amount, 0) AS amount,
+                CASE
+                  WHEN o.close_date IS NULL THEN NULL
+                  WHEN (o.close_date::text ~ '^\\d{4}-\\d{2}-\\d{2}') THEN substring(o.close_date::text from 1 for 10)::date
+                  WHEN (o.close_date::text ~ '^\\d{1,2}/\\d{1,2}/\\d{4}') THEN
+                    to_date(substring(o.close_date::text from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'MM/DD/YYYY')
+                  ELSE NULL
+                END AS close_d
+              FROM opportunities o
+             WHERE o.org_id = $1::bigint
+               AND o.rep_id = $3::bigint
+            )
+            SELECT
+              p.id::text AS quota_period_id,
+              COALESCE(SUM(d.amount), 0)::float8 AS won_amount
+            FROM deals d
+            JOIN periods p
+              ON d.close_d IS NOT NULL
+             AND d.close_d >= p.period_start
+             AND d.close_d <= p.period_end
+            GROUP BY p.id
+            `,
+            [orgId, quarterIds, selectedRepDetail.id]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+
+  const overlayAssignments =
+    selectedRepDetail?.user_id != null
+      ? await pool
+          .query<{ channel_rep_id: number; partner_name: string }>(
+            `
+            SELECT channel_rep_id, partner_name
+              FROM partner_channel_assignments
+             WHERE org_id = $1::bigint
+               AND channel_rep_id = $2::int
+            `,
+            [orgId, selectedRepDetail.user_id]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+  const isOverlay = overlayAssignments.length > 0;
+  const overlayPartnerNames = Array.from(
+    new Set(overlayAssignments.map((r) => String(r.partner_name || "").trim()).filter(Boolean))
+  );
+
+  const managerHasQuota =
+    selectedRepDetail?.manager_rep_id != null && fiscal_year
+      ? await pool
+          .query<{ has_quota: boolean }>(
+            `
+            SELECT COALESCE(SUM(q.quota_amount), 0) > 0 AS has_quota
+              FROM quotas q
+              JOIN quota_periods qp
+                ON qp.id = q.quota_period_id
+               AND qp.org_id = q.org_id
+             WHERE q.org_id = $1::bigint
+               AND q.rep_id = $2::bigint
+               AND qp.fiscal_year = $3
+            `,
+            [orgId, selectedRepDetail.manager_rep_id, fiscal_year]
+          )
+          .then((r) => r.rows?.[0]?.has_quota === true)
+          .catch(() => false)
+      : true;
+
+  const viewerSelfRep =
+    ctx.kind === "user"
+      ? await pool
+          .query<{ id: number; public_id: string; rep_name: string | null; display_name: string | null }>(
+            `
+            SELECT
+              r.id,
+              r.public_id::text AS public_id,
+              r.rep_name,
+              r.display_name
+            FROM reps r
+            WHERE r.organization_id = $1::bigint
+              AND r.user_id = $2::bigint
+            ORDER BY r.id DESC
+            LIMIT 1
+            `,
+            [orgId, ctx.user.id]
+          )
+          .then((r) => r.rows?.[0] ?? null)
+          .catch(() => null)
+      : null;
+
+  const viewerQuotaRows =
+    viewerSelfRep?.id && [q1PeriodId, q2PeriodId, q3PeriodId, q4PeriodId].filter(Boolean).length
+      ? await pool
+          .query<{ quota_period_id: string; quota_amount: number; annual_target: number | null }>(
+            `
+            SELECT
+              q.quota_period_id::text AS quota_period_id,
+              q.quota_amount::float8 AS quota_amount,
+              q.annual_target::float8 AS annual_target
+            FROM quotas q
+            WHERE q.org_id = $1::bigint
+              AND q.rep_id = $2::bigint
+              AND q.quota_period_id = ANY($3::bigint[])
+            `,
+            [orgId, viewerSelfRep.id, [q1PeriodId, q2PeriodId, q3PeriodId, q4PeriodId].filter(Boolean)]
+          )
+          .then((r) => r.rows || [])
+          .catch(() => [])
+      : [];
+  const leaderQuarterTotal = viewerQuotaRows.reduce((sum, row) => sum + (Number(row.quota_amount || 0) || 0), 0);
+  const leaderHasQuota = leaderQuarterTotal > 0 || viewerQuotaRows.some((row) => Number(row.annual_target || 0) > 0);
 
   return (
     <main>
@@ -132,12 +386,6 @@ export default async function QuotasPage({
             className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
           >
             Analytics home
-          </Link>
-          <Link
-            href={`${closeHref({ rep_id, fiscal_year })}${rep_id || fiscal_year ? "&" : "?"}modal=new`}
-            className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]"
-          >
-            New quota
           </Link>
         </div>
       </div>
@@ -158,57 +406,38 @@ export default async function QuotasPage({
         </section>
       ) : null}
 
-      <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Filters</h2>
-        <form method="GET" action="/admin/analytics/quotas" className="mt-3 grid gap-3 md:grid-cols-3">
-          <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
-            <select
-              name="rep_id"
-              defaultValue={rep_id}
-              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              required
-            >
-              <option value="">(select)</option>
-              {reps.map((r) => (
-                <option key={r.id} value={String(r.id)}>
-                  {repLabel(r)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Fiscal Year</label>
-            <select
-              name="fiscal_year"
-              defaultValue={fiscal_year}
-              className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
-              required
-            >
-              <option value="">(select)</option>
-              {fiscalYears.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-1">
-            <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]"> </label>
-            <div className="text-sm text-[color:var(--sf-text-secondary)]">{""}</div>
-          </div>
-          <div className="md:col-span-3 flex items-center justify-end gap-2">
-            <Link
-              href="/admin/analytics/quotas"
-              className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-            >
-              Reset
-            </Link>
-            <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
-              Apply
-            </button>
-          </div>
-        </form>
+          <form method="GET" action="/admin/analytics/quotas" className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Rep</label>
+              <select
+                name="rep_id"
+                defaultValue={rep_id}
+                className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
+                required
+              >
+                <option value="">(select)</option>
+                {reps.map((r) => (
+                  <option key={r.id} value={String(r.id)}>
+                    {repLabel(r)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <FiscalYearSelector name="fiscal_year" fiscalYears={fiscalYears.map((y) => ({ fiscal_year: y }))} defaultValue={fiscal_year} required={false} label="Fiscal Year" />
+            <div className="flex items-end justify-end gap-2">
+              <Link
+                href="/admin/analytics/quotas"
+                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
+              >
+                Reset
+              </Link>
+              <button className="rounded-md bg-[color:var(--sf-button-primary-bg)] px-3 py-2 text-sm font-medium text-[color:var(--sf-button-primary-text)] hover:bg-[color:var(--sf-button-primary-hover)]">
+                Apply
+              </button>
+            </div>
+          </form>
       </section>
 
       {!rep_id || !fiscal_year ? (
@@ -216,111 +445,82 @@ export default async function QuotasPage({
           <p className="text-sm text-[color:var(--sf-text-secondary)]">Select a Rep and Fiscal Year to view and edit the 4-quarter quota set.</p>
         </section>
       ) : (
-        <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Quota Set</h2>
-              <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
-                Rep: <span className="font-medium">{selectedRepName || rep_id}</span> · Fiscal Year:{" "}
-                <span className="font-mono text-xs">{fiscal_year}</span>
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href={`${closeHref({ rep_id, fiscal_year })}&modal=edit`}
-                className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                Edit
-              </Link>
-              <Link
-                href={`${closeHref({ rep_id, fiscal_year })}&modal=delete`}
-                className="rounded-md border border-[#E74C3C] px-3 py-2 text-sm text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]"
-              >
-                Delete
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-auto rounded-md border border-[color:var(--sf-border)]">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]">
-                <tr>
-                  <th className="px-4 py-3">Q1</th>
-                  <th className="px-4 py-3">Q2</th>
-                  <th className="px-4 py-3">Q3</th>
-                  <th className="px-4 py-3">Q4</th>
-                  <th className="px-4 py-3 text-right">Annual Quota</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-t border-[color:var(--sf-border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{q1 ? q1Amt : ""}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q2 ? q2Amt : ""}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q3 ? q3Amt : ""}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{q4 ? q4Amt : ""}</td>
-                  <td className="px-4 py-3 text-right font-mono text-xs">
-                    {q1 || q2 || q3 || q4 || annualTargetNum != null ? annualTargetNum ?? quarterSum : ""}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {modal === "new" ? (
-        <Modal title="New Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
-          <RepQuotaSetFormClient
-            action={upsertRepQuotaSetAction}
-            mode="new"
-            reps={reps.map((r) => ({ id: String(r.id), name: repLabel(r) }))}
-            fiscalYears={fiscalYears}
-            defaultRepId={rep_id}
-            defaultFiscalYear={fiscal_year}
-            cancelHref={closeHref({ rep_id, fiscal_year })}
-            initialAnnualQuota={annualTargetNum}
-            initialAmounts={{ q1: q1Amt, q2: q2Amt, q3: q3Amt, q4: q4Amt }}
-          />
-        </Modal>
-      ) : null}
-
-      {modal === "edit" ? (
-        <Modal title="Edit Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
-          <RepQuotaSetFormClient
-            action={upsertRepQuotaSetAction}
-            mode="edit"
-            reps={reps.map((r) => ({ id: String(r.id), name: repLabel(r) }))}
-            fiscalYears={fiscalYears}
-            defaultRepId={rep_id}
-            defaultFiscalYear={fiscal_year}
-            cancelHref={closeHref({ rep_id, fiscal_year })}
-            initialAnnualQuota={annualTargetNum}
-            initialAmounts={{ q1: q1Amt, q2: q2Amt, q3: q3Amt, q4: q4Amt }}
-          />
-        </Modal>
-      ) : null}
-
-      {modal === "delete" ? (
-        <Modal title="Delete Quota Set" closeHref={closeHref({ rep_id, fiscal_year })}>
-          <form action={deleteRepQuotaSetAction} className="grid gap-3">
-            <input type="hidden" name="rep_id" value={rep_id} />
-            <input type="hidden" name="fiscal_year" value={fiscal_year} />
-            <div className="rounded-md border border-[#E74C3C] bg-[color:var(--sf-surface-alt)] px-4 py-3 text-sm text-[color:var(--sf-text-primary)]">
-              <div className="font-semibold text-[#E74C3C]">This action cannot be undone.</div>
-              <div className="mt-1 text-[color:var(--sf-text-secondary)]">
-                Delete quota set for Rep <span className="font-medium">{selectedRepName || rep_id}</span> in Fiscal Year{" "}
-                <span className="font-mono text-xs">{fiscal_year}</span>.
+          <section className="mt-5 grid gap-5">
+            {error === "missing_quarter_periods" ? (
+              <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] px-4 py-3 text-sm text-[color:var(--sf-text-secondary)]">
+                Missing Q1–Q4 quota periods for that fiscal year. Create them in{" "}
+                <Link className="text-[color:var(--sf-accent-primary)] hover:underline" href="/admin/analytics/quota-periods">
+                  quota periods
+                </Link>
+                .
               </div>
-            </div>
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <Link href={closeHref({ rep_id, fiscal_year })} className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm hover:bg-[color:var(--sf-surface-alt)]">
-                Cancel
-              </Link>
-              <button className="rounded-md bg-[#E74C3C] px-3 py-2 text-sm font-medium text-white hover:opacity-90">Delete</button>
-            </div>
-          </form>
-        </Modal>
-      ) : null}
+            ) : null}
+
+            {selectedRepDetail ? (
+              <>
+                <div className="flex items-center justify-end gap-2">
+                  <form action={deleteRepQuotaSetAction}>
+                    <input type="hidden" name="rep_id" value={rep_id} />
+                    <input type="hidden" name="fiscal_year" value={fiscal_year} />
+                    <button className="rounded-md border border-[#E74C3C] px-3 py-2 text-sm text-[#E74C3C] hover:bg-[color:var(--sf-surface-alt)]">
+                      Delete quota set
+                    </button>
+                  </form>
+                </div>
+                <QuotaSetupShell
+                  fiscalYear={fiscal_year}
+                  quotaPeriods={yearPeriods as any[]}
+                  viewer={{
+                    repId: viewerSelfRep?.id ?? null,
+                    repPublicId: String(viewerSelfRep?.public_id || ""),
+                    repName: repLabel(viewerSelfRep),
+                    hierarchyLevel: Number(ctx.user.hierarchy_level),
+                    isAdmin: true,
+                  }}
+                  leaderQuota={viewerQuotaRows.map((row) => ({
+                    periodId: Number(row.quota_period_id),
+                    amount: Number(row.quota_amount || 0) || 0,
+                    annualTarget: row.annual_target,
+                  }))}
+                  leaderHasQuota={leaderHasQuota}
+                  leaderQuarterTotal={leaderQuarterTotal}
+                  reps={[
+                    {
+                      repId: Number(selectedRepDetail.id),
+                      repPublicId: String(selectedRepDetail.public_id || ""),
+                      repName: repLabel(selectedRepDetail),
+                      userId: selectedRepDetail.user_id == null ? null : Number(selectedRepDetail.user_id),
+                      hierarchyLevel: selectedRepDetail.hierarchy_level == null ? null : Number(selectedRepDetail.hierarchy_level),
+                      managerRepId: selectedRepDetail.manager_rep_id == null ? null : Number(selectedRepDetail.manager_rep_id),
+                      quota: [q1, q2, q3, q4]
+                        .filter(Boolean)
+                        .map((q: any) => ({
+                          periodId: Number(q.quota_period_id),
+                          amount: Number(q.quota_amount || 0) || 0,
+                          annualTarget: q.annual_target ?? null,
+                        })),
+                      wonByPeriod: selectedRepWonRows.map((row) => ({
+                        periodId: Number(row.quota_period_id),
+                        wonAmount: Number(row.won_amount || 0) || 0,
+                      })),
+                      isOverlay,
+                      managerHasQuota,
+                    },
+                  ]}
+                  selectedRepPublicId={String(selectedRepDetail.public_id || "")}
+                  sumRepQuotas={quarterSum}
+                  overlayQuotaTotal={isOverlay ? quarterSum : 0}
+                  overlayPartnerNames={overlayPartnerNames}
+                  saveAction={saveQuotaSetupAction}
+                />
+              </>
+            ) : (
+              <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+                <p className="text-sm text-[color:var(--sf-text-secondary)]">Selected rep not found.</p>
+              </section>
+            )}
+          </section>
+      )}
     </main>
   );
 }
