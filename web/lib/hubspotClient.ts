@@ -980,7 +980,7 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
       mappingRows.map((row) => [String(row.sf_field || "").trim(), row] as const)
     );
 
-    const props: Record<string, string> = {};
+    const props: Record<string, string | number> = {};
     for (const sfField of ["health_initial", "health_current", "risk_summary", "next_steps"] as const) {
       const mapping = mappingByField.get(sfField);
       if (!mapping) continue;
@@ -1002,16 +1002,14 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
         if (currentRes.ok === false) return { ok: false, error: currentRes.error };
         const existingValue = currentRes.json?.properties?.[targetProperty];
         if (existingValue != null && String(existingValue).trim() !== "") continue;
-        if (opp.baseline_health_score != null) {
-          props[targetProperty] = String(Number(opp.baseline_health_score) || 0);
-        }
+        const rawBaselineScore = Number(opp.baseline_health_score || 0) || 0;
+        props[targetProperty] = Math.round((rawBaselineScore / 30) * 100);
         continue;
       }
 
       if (sfField === "health_current") {
-        if (opp.health_score != null) {
-          props[targetProperty] = String(Number(opp.health_score) || 0);
-        }
+        const rawHealthScore = Number(opp.health_score || 0) || 0;
+        props[targetProperty] = Math.round((rawHealthScore / 30) * 100);
         continue;
       }
 
@@ -1027,7 +1025,7 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
 
     if (!Object.keys(props).length) return { ok: true, data: { skipped: "nothing_to_write" } };
 
-    const wb = await updateDealProperties(orgId, hubDealId, props);
+    const wb = await updateDealProperties(orgId, hubDealId, props as unknown as Record<string, string>);
     if (wb.ok === false) return wb;
     return { ok: true, data: {} };
   } catch (e: any) {
