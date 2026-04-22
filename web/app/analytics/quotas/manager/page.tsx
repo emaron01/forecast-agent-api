@@ -13,6 +13,7 @@ import { getDistinctFiscalYears, getQuotaPeriods } from "../actions";
 import { QuotaSetupShell } from "../../../../components/quota/QuotaSetupShell";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import {
+  isAdmin,
   isChannelExec,
   isChannelManager,
   isChannelRep,
@@ -39,6 +40,10 @@ function quarterNumberFromAny(v: unknown): "" | "1" | "2" | "3" | "4" {
   if (s === "3" || s === "q3" || s.includes("3rd")) return "3";
   if (s === "4" || s === "q4" || s.includes("4th")) return "4";
   return "";
+}
+
+function isForecastingAdminUser(user: AuthUser) {
+  return isAdmin(user) && !!user.admin_has_full_analytics_access;
 }
 
 async function managerRepIdForUser(args: { orgId: number; userId: number }) {
@@ -160,7 +165,7 @@ async function listQuotaScopedReps(args: {
     return { managerRepId, reps, showTeam: true };
   }
 
-  if (isManager(args.user) || isExecManager(args.user)) {
+  if (isForecastingAdminUser(args.user) || isManager(args.user) || isExecManager(args.user)) {
     const reps = managerRepId
       ? await listDirectReps({ orgId: args.orgId, managerRepId }).catch(() => [])
       : [];
@@ -264,7 +269,12 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   const ctx = await requireAuth();
   if (
     ctx.kind !== "user" ||
-    (!isExecManager(ctx.user) && !isManager(ctx.user) && !isChannelExec(ctx.user) && !isChannelManager(ctx.user) && !isChannelRep(ctx.user))
+    (!isForecastingAdminUser(ctx.user) &&
+      !isExecManager(ctx.user) &&
+      !isManager(ctx.user) &&
+      !isChannelExec(ctx.user) &&
+      !isChannelManager(ctx.user) &&
+      !isChannelRep(ctx.user))
   ) {
     redirect("/dashboard");
   }
@@ -368,6 +378,7 @@ export default async function AnalyticsQuotasManagerPage({
   const ctx = await requireAuth();
   if (ctx.kind === "master") redirect("/admin/organizations");
   if (
+    !isForecastingAdminUser(ctx.user) &&
     !isExecManager(ctx.user) &&
     !isManager(ctx.user) &&
     !isChannelExec(ctx.user) &&
