@@ -151,6 +151,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
   /** Channel roles (6/7/8): hide links into Matthew / deal-review. */
   hideMatthewLinks?: boolean;
   showRequestReview?: boolean;
+  requestReviewLabel?: string;
 }) {
   const router = useRouter();
   const deals = props.deals || [];
@@ -415,7 +416,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                                   onClick={() => openRequestComposer(id)}
                                   className="inline-flex items-center justify-center rounded-md border border-[color:var(--sf-accent-primary)] px-4 py-2 text-xs font-semibold text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-accent-primary)] hover:text-white transition-colors"
                                 >
-                                  Request Review
+                                  {props.requestReviewLabel || "Request Review"}
                                 </button>
                               </div>
                             ) : (

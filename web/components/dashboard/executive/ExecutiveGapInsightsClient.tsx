@@ -3277,6 +3277,8 @@ export function ExecutiveGapInsightsClient(props: {
               subtitle={undefined}
               deals={sortedDeals.slice(0, topN)}
               hideMatthewLinks={isChannelViewerRole}
+              showRequestReview={!isChannelViewerRole}
+              requestReviewLabel="Request Deal Review"
             />
           </div>
         );

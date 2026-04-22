@@ -207,7 +207,7 @@ export async function GET(req: Request) {
       params.push(partnerNames);
       const partnerNamesIdx = ++p;
       channelPartnerDollarIndex = partnerNamesIdx;
-      where.push(channelDealScopeWhereStrict(territoryIdx, partnerNamesIdx));
+      where.push(channelDealScopeWhereStrict(territoryIdx, partnerNamesIdx).replace(/^\s*AND\b/i, "").trim());
     } else if (allowedRepIds !== null) {
       params.push(allowedRepIds);
       where.push(`o.rep_id IS NOT NULL`);
