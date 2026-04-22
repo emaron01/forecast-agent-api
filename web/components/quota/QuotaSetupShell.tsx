@@ -199,7 +199,7 @@ export function QuotaSetupShell(props: QuotaSetupShellProps) {
               <span className="font-mono font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(remainingToAssign)}</span>
             </div>
             {props.overlayQuotaTotal > 0 ? (
-              <p className="mt-2 text-xs leading-relaxed text-[color:var(--sf-text-secondary)]">
+              <p className="mt-2 text-sm leading-relaxed text-[color:var(--sf-text-secondary)]">
                 includes {fmtMoney(props.overlayQuotaTotal)} overlay quota
                 {props.overlayPartnerNames.length ? ` for ${props.overlayPartnerNames.join(", ")}` : ""} not counted toward your target
               </p>

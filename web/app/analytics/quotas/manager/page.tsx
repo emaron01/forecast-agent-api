@@ -337,6 +337,9 @@ async function saveRepQuotasForYearAction(formData: FormData) {
   }
 
   revalidatePath("/analytics/quotas/manager");
+  revalidatePath("/dashboard/channel");
+  revalidatePath("/dashboard/executive");
+  revalidatePath("/dashboard");
 
   const savedOwnLeaderQuota =
     (isChannelExec(ctx.user) || isChannelManager(ctx.user)) &&

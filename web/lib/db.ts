@@ -570,7 +570,7 @@ export async function syncManagerQuotas(args: {
       const total = Number(sumResult.rows[0]?.total ?? "0");
       if (!Number.isFinite(total)) continue;
 
-      const updated = await pool.query(
+      await pool.query(
         `
         UPDATE quotas
            SET quota_amount = $4::numeric,
@@ -580,54 +580,10 @@ export async function syncManagerQuotas(args: {
          WHERE org_id = $1::bigint
            AND rep_id = $2::bigint
            AND quota_period_id = $3::bigint
-           AND is_manual = false
+           AND COALESCE(is_manual, false) = false
         `,
         [orgId, managerRepId, quotaPeriodId, total, managerOfManager, roleLevel]
       );
-
-      if ((updated.rowCount ?? 0) === 0) {
-        const exists = await pool.query(
-          `
-          SELECT 1
-            FROM quotas
-           WHERE org_id = $1::bigint
-             AND rep_id = $2::bigint
-             AND quota_period_id = $3::bigint
-           LIMIT 1
-          `,
-          [orgId, managerRepId, quotaPeriodId]
-        );
-        if (exists.rowCount === 0) {
-          await pool.query(
-            `
-            INSERT INTO quotas (
-              org_id,
-              rep_id,
-              manager_id,
-              role_level,
-              quota_period_id,
-              quota_amount,
-              annual_target,
-              carry_forward,
-              adjusted_quarterly_quota,
-              is_manual
-            ) VALUES (
-              $1::bigint,
-              $2::bigint,
-              $3::bigint,
-              $4::int,
-              $5::bigint,
-              $6::numeric,
-              $6::numeric,
-              0,
-              NULL,
-              false
-            )
-            `,
-            [orgId, managerRepId, managerOfManager, roleLevel, quotaPeriodId, total]
-          );
-        }
-      }
     }
 
     await pool.query(
@@ -660,26 +616,9 @@ export async function syncManagerQuotas(args: {
 
 /** After manager_rep_id changes, recompute auto manager quotas (all periods) from each leaf rep. */
 async function recomputeManagerQuotasAfterRepHierarchySync(args: { orgId: number }): Promise<void> {
-  const orgId = zOrganizationId.parse(args.orgId);
-
-  const { rows: leafRows } = await pool.query<{ id: number }>(
-    `
-    SELECT r.id
-      FROM reps r
-     WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-       AND NOT EXISTS (
-         SELECT 1
-           FROM reps c
-          WHERE COALESCE(c.organization_id, c.org_id::bigint) = $1::bigint
-            AND c.manager_rep_id = r.id
-       )
-    `,
-    [orgId]
-  );
-
-  for (const leaf of leafRows) {
-    await syncManagerQuotas({ orgId, startRepId: leaf.id }).catch(() => null);
-  }
+  void args;
+  // Auto-rollup removed — quota is now always manually set top-down.
+  return;
 }
 
 export async function getRep(args: { organizationId: number; repId: number }) {
