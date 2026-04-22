@@ -89,9 +89,29 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
   return rows as DirectRep[];
 }
 
-async function listChannelDirectReps(args: { orgId: number; channelLeaderUserId: number }): Promise<DirectRep[]> {
+async function listChannelDirectReps(args: {
+  orgId: number;
+  channelLeaderUserId: number;
+}): Promise<DirectRep[]> {
   const { rows } = await pool.query<DirectRep>(
     `
+    WITH RECURSIVE subtree_users AS (
+      SELECT u.id AS user_id
+      FROM users u
+      WHERE u.org_id = $1::bigint
+        AND u.id = $2::bigint
+        AND u.hierarchy_level IN (6, 7)
+
+      UNION ALL
+
+      SELECT u.id
+      FROM users u
+      INNER JOIN subtree_users su
+        ON u.manager_user_id = su.user_id
+      WHERE u.org_id = $1::bigint
+        AND COALESCE(u.active, TRUE) IS TRUE
+        AND u.hierarchy_level BETWEEN 6 AND 8
+    )
     SELECT
       r.id,
       r.public_id::text AS public_id,
@@ -102,12 +122,13 @@ async function listChannelDirectReps(args: { orgId: number; channelLeaderUserId:
     JOIN users u
       ON u.id = r.user_id
      AND u.org_id = r.organization_id
+    JOIN subtree_users su
+      ON su.user_id = u.id
     WHERE r.organization_id = $1
-      AND u.manager_user_id = $2
-      AND u.hierarchy_level = 8
+      AND u.id <> $2
       AND r.active IS TRUE
       AND COALESCE(u.active, TRUE) IS TRUE
-    ORDER BY rep_name ASC, r.id ASC
+    ORDER BY COALESCE(u.hierarchy_level, 99) ASC, rep_name ASC, r.id ASC
     `,
     [args.orgId, args.channelLeaderUserId]
   );
