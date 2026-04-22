@@ -94,6 +94,31 @@ async function listDirectReps(args: { orgId: number; managerRepId: number }): Pr
   return rows as DirectRep[];
 }
 
+async function listForecastingAdminDirectReps(args: { orgId: number; managerUserId: number }): Promise<DirectRep[]> {
+  const { rows } = await pool.query<DirectRep>(
+    `
+    SELECT
+      r.id,
+      r.public_id::text AS public_id,
+      COALESCE(NULLIF(btrim(r.display_name), ''), NULLIF(btrim(r.rep_name), ''), ('Rep ' || r.id::text)) AS rep_name,
+      u.hierarchy_level,
+      u.id AS user_id
+    FROM reps r
+    JOIN users u
+      ON u.id = r.user_id
+     AND u.org_id = r.organization_id
+    WHERE r.organization_id = $1
+      AND u.manager_user_id = $2
+      AND COALESCE(u.hierarchy_level, 99) BETWEEN 1 AND 8
+      AND r.active IS TRUE
+      AND COALESCE(u.active, TRUE) IS TRUE
+    ORDER BY COALESCE(u.hierarchy_level, 99) ASC, rep_name ASC, r.id ASC
+    `,
+    [args.orgId, args.managerUserId]
+  );
+  return rows as DirectRep[];
+}
+
 async function listChannelDirectReps(args: {
   orgId: number;
   channelLeaderUserId: number;
@@ -165,7 +190,15 @@ async function listQuotaScopedReps(args: {
     return { managerRepId, reps, showTeam: true };
   }
 
-  if (isForecastingAdminUser(args.user) || isManager(args.user) || isExecManager(args.user)) {
+  if (isForecastingAdminUser(args.user)) {
+    const reps = await listForecastingAdminDirectReps({
+      orgId: args.orgId,
+      managerUserId: args.user.id,
+    }).catch(() => []);
+    return { managerRepId, reps, showTeam: true };
+  }
+
+  if (isManager(args.user) || isExecManager(args.user)) {
     const reps = managerRepId
       ? await listDirectReps({ orgId: args.orgId, managerRepId }).catch(() => [])
       : [];
