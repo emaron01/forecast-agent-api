@@ -89,48 +89,54 @@ export async function PUT(req: Request) {
 
   let syncQueued = false;
   if (triggerSync) {
-    const { rows: prior } = await pool.query<{ id: string }>(
+    const ins = await pool.query<{ id: string }>(
       `
-      SELECT id::text AS id
-        FROM hubspot_sync_log
-       WHERE org_id = $1
-         AND sync_type = 'initial'
-         AND status = 'completed'
-       LIMIT 1
+      INSERT INTO hubspot_sync_log (org_id, sync_type, status)
+      VALUES ($1, 'manual', 'pending')
+      RETURNING id::text AS id
       `,
       [org.orgId]
     );
-
-    if (!prior.length) {
-      const ins = await pool.query<{ id: string }>(
-        `
-        INSERT INTO hubspot_sync_log (org_id, sync_type, status)
-        VALUES ($1, 'initial', 'pending')
-        RETURNING id::text AS id
-        `,
-        [org.orgId]
-      );
-      syncLogId = ins.rows?.[0]?.id || null;
-      if (syncLogId) {
-        const queue = getIngestQueue();
-        if (queue && QUEUE_NAME === "opportunity-ingest") {
-          try {
-            await queue.add(
-              "hubspot-initial-sync",
-              { orgId: org.orgId, syncLogId, syncType: "initial" },
-              {
-                jobId: `hubspot-initial-sync_${org.orgId}_${syncLogId}`,
-                attempts: 3,
-                backoff: { type: "exponential", delay: 5000 },
-                removeOnComplete: true,
-                removeOnFail: false,
-              }
-            );
-            syncQueued = true;
-          } catch {
-            /* queue unavailable */
-          }
+    syncLogId = ins.rows?.[0]?.id || null;
+    if (syncLogId) {
+      const queue = getIngestQueue();
+      if (queue && QUEUE_NAME === "opportunity-ingest") {
+        try {
+          await queue.add(
+            "hubspot-manual-sync",
+            { orgId: org.orgId, syncLogId, syncType: "manual" },
+            {
+              jobId: `hubspot-mapping-resync_${org.orgId}_${syncLogId}`,
+              attempts: 3,
+              backoff: { type: "exponential", delay: 5000 },
+              removeOnComplete: true,
+              removeOnFail: false,
+            }
+          );
+          syncQueued = true;
+        } catch {
+          await pool.query(
+            `
+            UPDATE hubspot_sync_log
+               SET status = 'failed',
+                   completed_at = now(),
+                   error_message = 'Queue unavailable'
+             WHERE id = $1::bigint
+            `,
+            [syncLogId]
+          ).catch(() => {});
         }
+      } else {
+        await pool.query(
+          `
+          UPDATE hubspot_sync_log
+             SET status = 'failed',
+                 completed_at = now(),
+                 error_message = 'Queue unavailable'
+           WHERE id = $1::bigint
+          `,
+          [syncLogId]
+        ).catch(() => {});
       }
     }
   }
