@@ -2,7 +2,10 @@
 
 import { type ComponentProps } from "react";
 import { ExecutiveGapInsightsClient } from "../../../components/dashboard/executive/ExecutiveGapInsightsClient";
-import type { PartnerMotionDecisionEngine } from "../../../components/dashboard/executive/PartnerMotionPerformanceSection";
+import {
+  PartnerMotionPerformanceSection,
+  type PartnerMotionDecisionEngine,
+} from "../../../components/dashboard/executive/PartnerMotionPerformanceSection";
 import { ChannelPartnersTabHeroPanel } from "../../../components/dashboard/channel/ChannelPartnersTabHeroPanel";
 import type { ChannelLedFedRow, ChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 
@@ -109,7 +112,6 @@ export function ChannelTabPanelClient(props: {
             hero={channelContributionHero}
             basePath={revenueTabProps.basePath ?? ""}
             viewerRole={viewerRole}
-            motionEngine={motionEngine}
           />
           {(channelContributionRows?.length ?? 0) > 0 ? (
             <div className="mt-4 overflow-x-auto">
@@ -150,6 +152,24 @@ export function ChannelTabPanelClient(props: {
               </table>
             </div>
           ) : null}
+        </section>
+      ) : null}
+      {showEmbeddedChannelHeroPanel && motionEngine ? (
+        <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
+            <PartnerMotionPerformanceSection
+              engine={motionEngine}
+              outerClass=""
+              ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
+              ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+              ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
+            />
+          </div>
         </section>
       ) : null}
       <ExecutiveGapInsightsClient
