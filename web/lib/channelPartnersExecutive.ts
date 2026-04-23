@@ -370,7 +370,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
-          ${channelDealScopeWhereStrict(3, 4)}
+          ${channelScopeWhere}
       )
       SELECT
         partner_name,

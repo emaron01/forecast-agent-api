@@ -24,13 +24,13 @@ import {
   type ChannelLedFedRow,
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
-import { loadExecutiveChannelTabPartners } from "../../../lib/executiveChannelTabPartners";
+import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
+import { loadExecutiveChannelScope } from "../../../lib/executiveChannelScope";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
-import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
 
@@ -1509,70 +1509,14 @@ export default async function ExecutiveDashboardPage({
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
-  const visibleRepIdSet = new Set(
-    visibleRepIds
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-  );
-  const executiveChannelScopeUserIds =
-    showChannelContribution
-      ? await pool
-          .query<{ user_id: number }>(
-            `
-            SELECT DISTINCT r.user_id
-            FROM reps r
-            INNER JOIN users u
-              ON u.id = r.user_id
-             AND u.org_id = $1::bigint
-            WHERE r.organization_id = $1::bigint
-              AND (r.active IS TRUE OR r.active IS NULL)
-              AND (u.active IS TRUE OR u.active IS NULL)
-              AND u.hierarchy_level = $2::int
-              AND r.user_id IS NOT NULL
-            ORDER BY r.user_id ASC
-            `,
-            [ctx.user.org_id, HIERARCHY.CHANNEL_REP]
-          )
-          .then((res) =>
-            (res.rows || [])
-              .map((row) => Number(row.user_id))
-              .filter((id) => Number.isFinite(id) && id > 0)
-          )
-          .catch(() => [])
-      : [];
-  const executiveChannelTerritoryScopesRaw =
-    showChannelContribution && executiveChannelScopeUserIds.length > 0
-      ? await Promise.all(
-          executiveChannelScopeUserIds.map((channelUserId) =>
-            getChannelTerritoryRepIds({
-              orgId: ctx.user.org_id,
-              channelUserId,
-            }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
-          )
-        )
-      : [];
-  const executiveChannelTerritoryScopes = executiveChannelTerritoryScopesRaw
-    .map((scope) => ({
-      repIds: (scope.repIds || []).filter((id) => visibleRepIdSet.has(Number(id))),
-      partnerNames: (scope.partnerNames || []).map((name) => String(name || "").trim().toLowerCase()).filter(Boolean),
-    }))
-    .filter((scope) => scope.repIds.length > 0);
-  const executiveChannelTerritoryRepIds = Array.from(
-    new Set(
-      executiveChannelTerritoryScopes
-        .flatMap((scope) => scope.repIds)
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    )
-  );
-  const executiveChannelPartnerNames = Array.from(
-    new Set(
-      executiveChannelTerritoryScopes
-        .flatMap((scope) => scope.partnerNames)
-        .map((name) => String(name || "").trim().toLowerCase())
-        .filter(Boolean)
-    )
-  );
+  const executiveChannelScope = showChannelContribution
+    ? await loadExecutiveChannelScope({
+        orgId: ctx.user.org_id,
+        visibleRepIds,
+      }).catch(() => ({ territoryRepIds: [] as number[], partnerNames: [] as string[] }))
+    : { territoryRepIds: [] as number[], partnerNames: [] as string[] };
+  const executiveChannelTerritoryRepIds = executiveChannelScope.territoryRepIds;
+  const executiveChannelPartnerNames = executiveChannelScope.partnerNames;
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
@@ -1678,12 +1622,13 @@ export default async function ExecutiveDashboardPage({
 
   const channelPartnersExecutive =
     showChannelContribution && selectedPeriodId
-      ? await loadExecutiveChannelTabPartners({
+      ? await loadChannelPartnersExecutive({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
           territoryRepIds: executiveChannelTerritoryRepIds,
           partnerNames: executiveChannelPartnerNames,
+          scopeMode: "merged",
         }).catch(() => null)
       : null;
 
