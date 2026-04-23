@@ -150,60 +150,15 @@ function normalizeRevenueCell(v: unknown): { cleanValue: string; value: number |
   return { cleanValue, value: Number.isFinite(n) ? n : null };
 }
 
-function normalizeBooleanCell(v: unknown): boolean | null {
-  if (v == null) return null;
+function normalizeDealRegistrationCell(v: unknown): boolean {
+  if (v == null) return false;
   if (typeof v === "boolean") return v;
-  if (typeof v === "number") {
-    if (v === 1) return true;
-    if (v === 0) return false;
-  }
+  if (typeof v === "number") return v === 1;
   const raw = String(v)
-    .replaceAll("\u00A0", " ") // normalize non-breaking spaces from Excel exports
+    .replaceAll("\u00A0", " ")
     .trim();
-  if (!raw) return null;
-  const s = raw.toLowerCase();
-  // Common truthy/falsey values from Excel exports.
-  // - "checked"/"unchecked" often appear from checkbox exports
-  // - "on"/"off" from HTML-like sources
-  // - "x" / "✔" used by some templates
-  // - Align with public.upsert_opportunity deal_registration normalization (CRM strings).
-  if (
-    s === "true" ||
-    s === "t" ||
-    s === "yes" ||
-    s === "y" ||
-    s === "1" ||
-    s === "registered" ||
-    s === "approved" ||
-    s === "active" ||
-    s === "pending" ||
-    s === "checked" ||
-    s === "check" ||
-    s === "x" ||
-    s === "✔" ||
-    s === "on"
-  )
-    return true;
-  if (
-    s === "false" ||
-    s === "f" ||
-    s === "no" ||
-    s === "n" ||
-    s === "0" ||
-    s === "unchecked" ||
-    s === "off" ||
-    s === "null" ||
-    s === "none" ||
-    s === "expired" ||
-    // Common "not provided / not applicable" shorthands seen in uploads.
-    s === "np" ||
-    s === "n/p"
-  )
-    return false;
-  // Date-like CRM values (e.g. registration submitted date).
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return true;
-  // Non-empty token not explicitly false → true (e.g. registration IDs like DR-12345).
-  return true;
+  if (!raw) return false;
+  return raw.toLowerCase() === "y";
 }
 
 type ExcelUploadState =
@@ -606,43 +561,7 @@ export async function uploadExcelOpportunitiesAction(_prevState: ExcelUploadStat
         const src = byTarget.get("deal_registration") || "";
         if (src) {
           const v = row?.[src];
-          // Always coerce Deal Registration to a strict boolean for ingestion:
-          // - blanks/null => false
-          // - Yes/No/checked/etc => true/false
-          if (isBlankCell(v)) {
-            row[src] = false;
-          } else {
-            const raw = String(v ?? "")
-              .replaceAll("\u00A0", " ")
-              .trim();
-            // Treat common "not applicable" markers as blank => false.
-            const normalizedForBlank = raw.toLowerCase();
-            // Treat common placeholder punctuation (often used as "blank") as blank => false.
-            // Examples seen in spreadsheets: "`", "-", "—"
-            const punctuationOnly = /^[`'"’\-–—•]+$/.test(raw);
-            if (
-              punctuationOnly ||
-              normalizedForBlank === "n/a" ||
-              normalizedForBlank === "na" ||
-              normalizedForBlank === "np" ||
-              normalizedForBlank === "n/p" ||
-              normalizedForBlank === "-" ||
-              normalizedForBlank === "not applicable" ||
-              normalizedForBlank === "not provided"
-            ) {
-              row[src] = false;
-              continue;
-            }
-
-            const b = normalizeBooleanCell(raw);
-            if (b == null) {
-              issues.push(
-                `Row ${rowNum}: Deal Registration must be true/false (or yes/no) (column "${src}"). Found: "${raw || "(blank)"}"`
-              );
-            } else {
-              row[src] = b;
-            }
-          }
+          row[src] = normalizeDealRegistrationCell(v);
         }
       }
 

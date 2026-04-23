@@ -167,6 +167,27 @@ function mappedCell(raw: Record<string, unknown>, hubspotPropertyKey: string | n
   return v == null ? "" : String(v).trim();
 }
 
+function normalizeDealRegistrationIngestValue(value: unknown): string | boolean {
+  if (value == null) return false;
+  if (typeof value === "boolean") return value;
+  const raw = String(value).trim();
+  if (!raw) return false;
+  const normalized = raw.toLowerCase();
+  if (normalized === "y" || normalized === "yes" || normalized === "true" || normalized === "1") return true;
+  if (
+    normalized === "n" ||
+    normalized === "no" ||
+    normalized === "false" ||
+    normalized === "0" ||
+    normalized === "none" ||
+    normalized === "null" ||
+    normalized === "expired"
+  ) {
+    return false;
+  }
+  return raw;
+}
+
 function validateHubSpotIngestRow(args: {
   raw: Record<string, unknown>;
   mappingRows: HubspotFieldRow[];
@@ -295,6 +316,10 @@ async function buildRawRowForDeal(args: {
     const src = String(m.hubspot_property || "").trim();
     if (!src) continue;
     const v = props[src];
+    if (m.sf_field === "deal_reg") {
+      row[src] = normalizeDealRegistrationIngestValue(v);
+      continue;
+    }
     row[src] = v == null ? "" : String(v);
   }
 
