@@ -30,6 +30,7 @@ import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
+import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
 
@@ -1564,6 +1565,36 @@ export default async function ExecutiveDashboardPage({
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
+  const executiveChannelRepRows = repDirectory.filter(
+    (r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP && r.user_id != null
+  );
+  const executiveChannelTerritoryScopes =
+    showChannelContribution && executiveChannelRepRows.length > 0
+      ? await Promise.all(
+          executiveChannelRepRows.map((r) =>
+            getChannelTerritoryRepIds({
+              orgId: ctx.user.org_id,
+              channelUserId: Number(r.user_id),
+            }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+          )
+        )
+      : [];
+  const executiveChannelTerritoryRepIds = Array.from(
+    new Set(
+      executiveChannelTerritoryScopes
+        .flatMap((scope) => scope.repIds)
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+  const executiveChannelPartnerNames = Array.from(
+    new Set(
+      executiveChannelTerritoryScopes
+        .flatMap((scope) => scope.partnerNames)
+        .map((name) => String(name || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
 
   let channelContributionRows: ChannelLedFedRow[] = [];
   try {
@@ -1584,8 +1615,8 @@ export default async function ExecutiveDashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
-          territoryRepIds: visibleRepIds,
-          partnerNames: [],
+          territoryRepIds: executiveChannelTerritoryRepIds,
+          partnerNames: executiveChannelPartnerNames,
         }).catch(() => null)
       : null;
 
