@@ -38,6 +38,15 @@ type OppState = {
   scoring?: Scoring | null;
 };
 
+type ConfidenceEvidencePanel = {
+  source: "comment_ingestion" | "deal_review";
+  summary: string;
+  raw_text: string;
+  risk_flags: unknown[];
+  next_steps: string[];
+  categories: Array<{ category: string; score: number; evidence: string; tip: string }>;
+};
+
 type OrgStageMapping = { stage_value: string; bucket: string };
 
 function resolveOpenBucketFromStages(
@@ -97,6 +106,13 @@ function confidencePillClass(band: string | null | undefined) {
   if (v === "medium") return "warn";
   if (v === "low") return "err";
   return "";
+}
+
+function displayCategoryLabel(category: string) {
+  const key = String(category || "").trim();
+  if (!key) return "Category";
+  const row = (MEDDPICC_CANONICAL as any)?.[key] || null;
+  return String(row?.titleLine || key.replace(/_/g, " ")).trim();
 }
 
 function inferCategoryFromPromptText(text: string): CategoryKey | "" {
@@ -249,7 +265,9 @@ export function DealReviewClient(props: {
   const [speak, setSpeak] = useState(true);
   const [voice, setVoice] = useState(true);
   const [keepMicOpen, setKeepMicOpen] = useState(true);
-  const [evidenceModal, setEvidenceModal] = useState<{ id: number; raw_text: string; summary: string; risk_flags: unknown[]; next_steps: string[] } | null>(null);
+  const [confidenceEvidenceOpen, setConfidenceEvidenceOpen] = useState(false);
+  const [confidenceEvidenceLoading, setConfidenceEvidenceLoading] = useState(false);
+  const [confidenceEvidencePanel, setConfidenceEvidencePanel] = useState<ConfidenceEvidencePanel | null>(null);
 
   // Mic tune / capture controls (latest, voice-stable path uses mic+STT).
   const [micVadSilenceMs, setMicVadSilenceMs] = useState(1500);
@@ -406,7 +424,8 @@ export function DealReviewClient(props: {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "State load failed");
-      setOppState(json as OppState);
+      const nextState = json as OppState;
+      setOppState(nextState);
       const maybeMappings = (json as any)?.orgStageMappings ?? (json as any)?.org_stage_mappings ?? null;
       if (Array.isArray(maybeMappings)) {
         setOrgStageMappings(
@@ -418,11 +437,74 @@ export function DealReviewClient(props: {
             .filter((m: OrgStageMapping) => m.stage_value && m.bucket)
         );
       }
+      return nextState;
     } catch (e: any) {
       // Keep UI alive even if state fails.
       setOppState(null);
+      return null;
     }
   }, [opportunityId]);
+
+  const buildCurrentDealReviewEvidence = useCallback((state: OppState | null): ConfidenceEvidencePanel => {
+    const categories = (state?.categories || [])
+      .filter((c) => String(c.evidence || "").trim() || String(c.tip || "").trim() || Number(c.score || 0) > 0)
+      .map((c) => ({
+        category: displayCategoryLabel(c.category),
+        score: Number(c.score || 0) || 0,
+        evidence: String(c.evidence || "").trim(),
+        tip: String(c.tip || "").trim(),
+      }));
+
+    return {
+      source: "deal_review",
+      summary: String(state?.rollup?.risks || "").trim(),
+      raw_text: "",
+      risk_flags: [],
+      next_steps: String(state?.rollup?.next_steps || "")
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean),
+      categories,
+    };
+  }, []);
+
+  const toggleConfidenceEvidence = useCallback(async () => {
+    if (confidenceEvidenceOpen) {
+      setConfidenceEvidenceOpen(false);
+      return;
+    }
+
+    setConfidenceEvidenceLoading(true);
+    try {
+      const freshState = await loadOpportunityState();
+      const liveState = freshState || oppState;
+      const commentIngestionId = Number(liveState?.scoring?.evidence?.comment_ingestion_id);
+
+      if (Number.isFinite(commentIngestionId) && commentIngestionId > 0) {
+        try {
+          const res = await fetch(`/api/comment-ingestions/${commentIngestionId}`, { cache: "no-store" });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok && json?.ok) {
+            setConfidenceEvidencePanel({
+              source: "comment_ingestion",
+              summary: String(json.summary || "").trim(),
+              raw_text: String(json.raw_text || "").trim(),
+              risk_flags: Array.isArray(json.risk_flags) ? json.risk_flags : [],
+              next_steps: Array.isArray(json.next_steps) ? json.next_steps.map((s: any) => String(s || "").trim()).filter(Boolean) : [],
+              categories: [],
+            });
+            setConfidenceEvidenceOpen(true);
+            return;
+          }
+        } catch {}
+      }
+
+      setConfidenceEvidencePanel(buildCurrentDealReviewEvidence(liveState || null));
+      setConfidenceEvidenceOpen(true);
+    } finally {
+      setConfidenceEvidenceLoading(false);
+    }
+  }, [buildCurrentDealReviewEvidence, confidenceEvidenceOpen, loadOpportunityState, oppState]);
 
   useEffect(() => {
     void loadOpportunityState();
@@ -2265,86 +2347,78 @@ export function DealReviewClient(props: {
           {scoring ? (
             <div className="box" style={{ marginTop: 12 }}>
               <h3>Confidence</h3>
-              <p className="small" style={{ textTransform: "capitalize" }}>
-                <b>{scoring.confidence_band}</b> · Scored by: {scoring.score_source === "rep_review" ? "Rep Review" : scoring.score_source === "ai_notes" ? "AI Notes" : scoring.score_source === "manager_override" ? "Manager Override" : "System"}
-              </p>
-              <p className="small">{scoring.confidence_summary}</p>
-              {scoring.evidence?.comment_ingestion_id ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span className={`pill ${confidencePillClass(scoring.confidence_band)}`}>
+                  Confidence: <b style={{ textTransform: "capitalize" }}>{scoring.confidence_band}</b>
+                </span>
                 <button
                   type="button"
                   className="small"
-                  style={{ marginTop: 4, padding: "4px 8px", cursor: "pointer" }}
-                  onClick={async () => {
-                    try {
-                      const res = await fetch(`/api/comment-ingestions/${scoring.evidence.comment_ingestion_id}`);
-                      const json = await res.json().catch(() => ({}));
-                      if (json?.ok) {
-                        setEvidenceModal({
-                          id: json.id,
-                          raw_text: json.raw_text || "",
-                          summary: json.summary || "",
-                          risk_flags: json.risk_flags || [],
-                          next_steps: json.next_steps || [],
-                        });
-                      }
-                    } catch {}
+                  style={{ padding: "4px 8px", cursor: "pointer" }}
+                  onClick={() => void toggleConfidenceEvidence()}
+                >
+                  {confidenceEvidenceLoading ? "Refreshing..." : confidenceEvidenceOpen ? "Hide Evidence" : "View Evidence"}
+                </button>
+              </div>
+              {confidenceEvidenceOpen && confidenceEvidencePanel ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    border: "1px solid var(--line)",
+                    borderRadius: 10,
+                    padding: 12,
+                    background: "rgba(255,255,255,0.02)",
                   }}
                 >
-                  View Evidence
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {evidenceModal ? (
-            <div
-              className="qaOverlay"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
-              onClick={() => setEvidenceModal(null)}
-            >
-              <div
-                className="card"
-                style={{ maxWidth: 480, maxHeight: "80vh", overflow: "auto" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="hdr">
-                  <div className="title">Evidence</div>
-                  <button onClick={() => setEvidenceModal(null)}>Close</button>
-                </div>
-                <div style={{ padding: 12 }}>
-                  {evidenceModal.summary ? (
+                  {confidenceEvidencePanel.summary ? (
                     <div style={{ marginBottom: 12 }}>
-                      <b>Summary:</b> {evidenceModal.summary}
+                      <b>Summary:</b> {confidenceEvidencePanel.summary}
                     </div>
                   ) : null}
-                  {evidenceModal.raw_text ? (
+                  {confidenceEvidencePanel.raw_text ? (
                     <div style={{ marginBottom: 12 }}>
                       <b>Raw notes:</b>
-                      <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 4 }}>{evidenceModal.raw_text}</pre>
+                      <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, marginTop: 4 }}>{confidenceEvidencePanel.raw_text}</pre>
                     </div>
                   ) : null}
-                  {(evidenceModal.risk_flags as any[])?.length ? (
-                    <div style={{ marginBottom: 12 }}>
+                  {confidenceEvidencePanel.categories.length ? (
+                    <div style={{ marginBottom: confidenceEvidencePanel.risk_flags.length || confidenceEvidencePanel.next_steps.length ? 12 : 0 }}>
+                      <b>Latest review evidence:</b>
+                      <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                        {confidenceEvidencePanel.categories.map((c) => (
+                          <div key={c.category} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
+                            <div className="small" style={{ marginBottom: 4 }}>
+                              <b>{c.category}</b> {Number.isFinite(c.score) ? <span style={{ color: "var(--muted)" }}>· Score {c.score}</span> : null}
+                            </div>
+                            {c.evidence ? <div className="small"><b>Evidence:</b> {c.evidence}</div> : null}
+                            {c.tip ? <div className="small" style={{ marginTop: c.evidence ? 4 : 0 }}><b>Tip:</b> {c.tip}</div> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {(confidenceEvidencePanel.risk_flags as any[])?.length ? (
+                    <div style={{ marginBottom: confidenceEvidencePanel.next_steps.length ? 12 : 0 }}>
                       <b>Risk flags:</b>
                       <ul style={{ marginTop: 4, paddingLeft: 20 }}>
-                        {(evidenceModal.risk_flags as any[]).map((r, i) => (
+                        {(confidenceEvidencePanel.risk_flags as any[]).map((r, i) => (
                           <li key={i}>{typeof r === "object" && r?.type ? `${r.type} (${r.severity}): ${r.why}` : String(r)}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
-                  {evidenceModal.next_steps?.length ? (
+                  {confidenceEvidencePanel.next_steps?.length ? (
                     <div>
                       <b>Next steps:</b>
                       <ul style={{ marginTop: 4, paddingLeft: 20 }}>
-                        {evidenceModal.next_steps.map((s, i) => (
+                        {confidenceEvidencePanel.next_steps.map((s, i) => (
                           <li key={i}>{s}</li>
                         ))}
                       </ul>
                     </div>
                   ) : null}
                 </div>
-              </div>
+              ) : null}
             </div>
           ) : null}
 

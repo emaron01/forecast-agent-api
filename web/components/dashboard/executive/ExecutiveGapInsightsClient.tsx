@@ -432,9 +432,30 @@ const STAGE_ROWS = [
   },
 ] as const;
 
+const DEAL_BUCKET_PRIORITY = {
+  commit: 0,
+  best_case: 1,
+  pipeline: 2,
+} as const;
+
 function stageMatches(deal: DealOut, stage: (typeof STAGE_ROWS)[number]): boolean {
   const fs = String(deal.crm_stage?.forecast_stage ?? "").toLowerCase();
   return stage.match(fs);
+}
+
+function dealBucketKey(deal: DealOut): keyof typeof DEAL_BUCKET_PRIORITY {
+  const explicitBucket = String(deal.crm_stage?.bucket || "")
+    .trim()
+    .toLowerCase();
+  if (explicitBucket === "commit" || explicitBucket === "best_case" || explicitBucket === "pipeline") {
+    return explicitBucket;
+  }
+  const inferredStage = String(deal.crm_stage?.forecast_stage || deal.crm_stage?.label || deal.ai_verdict_stage || "")
+    .trim()
+    .toLowerCase();
+  if (inferredStage.includes("commit")) return "commit";
+  if (inferredStage.includes("best")) return "best_case";
+  return "pipeline";
 }
 
 function scoreToCell(avg: number | null, count: number): { bg: string; text: string; label: string } {
@@ -1068,10 +1089,19 @@ export function ExecutiveGapInsightsClient(props: {
   }, [heroTakeaway.summary, heroTakeaway.extended]);
 
   const sortedDeals = useMemo(() => {
-    const overallGap = ok?.totals?.gap ?? 0;
-    const dir = overallGap < 0 ? -1 : overallGap > 0 ? 1 : -1;
-    return stageDeals.slice().sort((a, b) => (dir < 0 ? a.weighted.gap - b.weighted.gap : b.weighted.gap - a.weighted.gap));
-  }, [stageDeals, ok]);
+    return stageDeals.slice().sort((a, b) => {
+      const bucketDiff = DEAL_BUCKET_PRIORITY[dealBucketKey(a)] - DEAL_BUCKET_PRIORITY[dealBucketKey(b)];
+      if (bucketDiff !== 0) return bucketDiff;
+
+      const amountDiff = Number(b.amount || 0) - Number(a.amount || 0);
+      if (amountDiff !== 0) return amountDiff;
+
+      const gapDiff = Math.abs(Number(b.weighted?.gap || 0)) - Math.abs(Number(a.weighted?.gap || 0));
+      if (gapDiff !== 0) return gapDiff;
+
+      return dealTitle(a).localeCompare(dealTitle(b));
+    });
+  }, [stageDeals]);
 
   const dealRiskCounts = useMemo(() => {
     const counts = new Map<string, number>();
