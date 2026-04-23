@@ -65,6 +65,10 @@ function normalizePartnerNames(names: string[]): string[] {
   );
 }
 
+// Executive Channel-tab motion classification should treat blank partner as Direct,
+// regardless of deal-registration data quality on the row.
+const directMotionWhereSql = `(o.partner_name IS NULL OR btrim(o.partner_name) = '')`;
+
 /**
  * Channel-scoped equivalent of `partnersExecutive` (CEI/WIC/PQS inputs).
  * Visibility rules match channel deal scoping: when partnerNames are provided, scope by partner_name;
@@ -150,7 +154,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND o.rep_id = ANY($5::bigint[])
-          AND ${partnerMotionPredicatesSql.isDirect}
+          AND ${directMotionWhereSql}
       ),
       base AS (
         SELECT
@@ -315,7 +319,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
           AND o.rep_id = ANY($5::bigint[])
-          AND ${partnerMotionPredicatesSql.isDirect}
+          AND ${directMotionWhereSql}
       ),
       base AS (
         SELECT motion, amount
