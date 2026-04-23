@@ -94,6 +94,55 @@ export async function loadChannelPartnersExecutive(args: {
           AND id = $2::bigint
         LIMIT 1
       ),
+      channel_deals AS (
+        SELECT
+          (${partnerMotionCaseSql("o")})::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.health_score::float8 AS health_score,
+          o.create_date::timestamptz AS create_date,
+          o.close_date::date AS close_date,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          ${channelDealScopeWhereStrict(3, 4)}
+      ),
+      direct_deals AS (
+        SELECT
+          'direct'::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.health_score::float8 AS health_score,
+          o.create_date::timestamptz AS create_date,
+          o.close_date::date AS close_date,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND o.rep_id = ANY($3::bigint[])
+          AND ${partnerMotionPredicatesSql.isDirect}
+      ),
       base AS (
         SELECT
           motion,
@@ -101,30 +150,17 @@ export async function loadChannelPartnersExecutive(args: {
           health_score,
           crm_bucket,
           CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
-        FROM (
-          SELECT
-            (${partnerMotionCaseSql("o")})::text AS motion,
-            COALESCE(o.amount, 0)::float8 AS amount,
-            o.health_score::float8 AS health_score,
-            o.create_date::timestamptz AS create_date,
-            o.close_date::date AS close_date,
-            (${crmBucketCaseSql("o")}) AS crm_bucket
-          FROM opportunities o
-          LEFT JOIN org_stage_mappings stm
-            ON stm.org_id = o.org_id
-           AND stm.field = 'stage'
-           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
-          LEFT JOIN org_stage_mappings fcm
-            ON fcm.org_id = o.org_id
-           AND fcm.field = 'forecast_category'
-           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
-          JOIN qp ON TRUE
-          WHERE o.org_id = $1
-            AND o.close_date IS NOT NULL
-            AND o.close_date >= qp.period_start
-            AND o.close_date <= qp.period_end
-            ${channelDealScopeWhereStrict(3, 4)}
-        ) base
+        FROM channel_deals
+        WHERE crm_bucket IN ('won', 'lost')
+          AND motion IN ('partner_influenced', 'partner_sourced')
+        UNION ALL
+        SELECT
+          motion,
+          amount,
+          health_score,
+          crm_bucket,
+          CASE WHEN create_date IS NOT NULL AND close_date IS NOT NULL THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int ELSE NULL END AS age_days
+        FROM direct_deals
         WHERE crm_bucket IN ('won', 'lost')
       )
       SELECT
@@ -224,7 +260,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND id = $2::bigint
         LIMIT 1
       ),
-      base AS (
+      channel_deals AS (
         SELECT
           (${partnerMotionCaseSql("o")})::text AS motion,
           COALESCE(o.amount, 0)::float8 AS amount,
@@ -245,6 +281,37 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
           ${channelDealScopeWhereStrict(3, 4)}
+      ),
+      direct_deals AS (
+        SELECT
+          'direct'::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
+          AND o.rep_id = ANY($3::bigint[])
+          AND ${partnerMotionPredicatesSql.isDirect}
+      ),
+      base AS (
+        SELECT motion, amount
+        FROM channel_deals
+        WHERE motion IN ('partner_influenced', 'partner_sourced')
+        UNION ALL
+        SELECT motion, amount
+        FROM direct_deals
       )
       SELECT
         motion,
