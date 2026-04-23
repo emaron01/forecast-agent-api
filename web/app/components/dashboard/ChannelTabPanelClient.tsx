@@ -157,7 +157,7 @@ export function ChannelTabPanelClient(props: {
         channelDashboardMode={true}
         channelTabOnly={true}
         showWicPqs={showWicPqs}
-        showCei={showCei && !showLeaderMotionSnapshotInHero}
+        showCei={showCei}
         viewerRole={viewerRole}
         topPartnerWon={topPartnerWon as ExecutiveGapProps["topPartnerWon"]}
         topPartnerLost={topPartnerLost as ExecutiveGapProps["topPartnerLost"]}

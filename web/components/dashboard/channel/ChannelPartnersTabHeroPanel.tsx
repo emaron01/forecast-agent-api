@@ -1,10 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import {
-  PartnerMotionPerformanceSection,
-  type PartnerMotionDecisionEngine,
-} from "../executive/PartnerMotionPerformanceSection";
+import { type PartnerMotionDecisionEngine } from "../executive/PartnerMotionPerformanceSection";
 import type { ChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
 import {
   ExecutiveRemainingQuarterlyForecastBlock,
@@ -399,27 +396,6 @@ export function ChannelPartnersTabHeroPanel(props: {
           </div>
         )}
       </section>
-
-      {isExecChannelTabHero && motionEngine ? (
-        <section className="mt-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Direct vs. Indirect Performance</div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-5">
-            <PartnerMotionPerformanceSection
-              engine={motionEngine}
-              outerClass=""
-              ceiRowClass="mt-4 grid gap-3 lg:grid-cols-3"
-              ceiCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
-              ratioCardClass="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-4"
-            />
-          </div>
-        </section>
-      ) : null}
-
       {!isExecChannelTabHero ? (
       <div className="mt-4 space-y-4">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
