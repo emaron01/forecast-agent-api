@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { resolveHubSpotDeal, getOrCreateEmbedUser, createEmbedSession } from "../../../../lib/embedAuth";
+import { resolveHubSpotDeal, getOrCreateEmbedUser, createEmbedSession } from "../../../lib/embedAuth";
 
 function EmbedError({ message }: { message: string }) {
   return (
