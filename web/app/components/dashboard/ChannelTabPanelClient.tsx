@@ -99,6 +99,7 @@ export function ChannelTabPanelClient(props: {
   const showEmbeddedChannelHeroPanel =
     !(isChannelDashboard && isChannelViewerRole) && !(isRepBookDashboard && isSalesRepRole);
   const motionEngine = buildPartnerMotionDecisionEngine(revenueTabProps.partnersExecutive);
+  console.log("[SF_DEBUG] motionEngine", motionEngine, "partnersExecutive", revenueTabProps.partnersExecutive);
   const showLeaderMotionSnapshotInHero = showEmbeddedChannelHeroPanel && !!motionEngine;
 
   return (
