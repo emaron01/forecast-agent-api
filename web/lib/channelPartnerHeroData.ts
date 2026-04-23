@@ -954,26 +954,27 @@ export async function loadChannelLedFedRows(args: {
           (m.crm_bucket IN ('lost', 'excluded')) AS is_lost,
           (m.crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
           m.crm_bucket AS bucket,
-          (m.deal_registration IS TRUE) AS is_led
+          (m.deal_registration IS TRUE) AS is_led,
+          (m.deal_registration IS NOT TRUE) AS is_fed
         FROM mapped m
       )
       SELECT
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_total_pipeline,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_total_pipeline,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND is_fed THEN amount ELSE 0 END), 0)::float8 AS fed_total_pipeline,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_commit,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_commit,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'commit' AND is_fed THEN amount ELSE 0 END), 0)::float8 AS fed_commit,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_best,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_best,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'best_case' AND is_fed THEN amount ELSE 0 END), 0)::float8 AS fed_best,
         COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_pipeline_only,
-        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_pipeline_only,
+        COALESCE(SUM(CASE WHEN is_active AND (predictive_eligible IS TRUE) AND bucket = 'pipeline' AND is_fed THEN amount ELSE 0 END), 0)::float8 AS fed_pipeline_only,
         COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND is_led THEN amount ELSE 0 END), 0)::float8 AS led_won,
-        COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS fed_won,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'won' AND is_fed THEN amount ELSE 0 END), 0)::float8 AS fed_won,
         COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_led THEN amount ELSE 0 END), 0)::float8 AS lost_led,
-        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND NOT is_led THEN amount ELSE 0 END), 0)::float8 AS lost_fed,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_fed THEN amount ELSE 0 END), 0)::float8 AS lost_fed,
         COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_led THEN 1 ELSE 0 END), 0)::int AS lost_count_led,
-        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND NOT is_led THEN 1 ELSE 0 END), 0)::int AS lost_count_fed,
+        COALESCE(SUM(CASE WHEN crm_bucket IN ('lost', 'excluded') AND is_fed THEN 1 ELSE 0 END), 0)::int AS lost_count_fed,
         COALESCE(COUNT(*) FILTER (WHERE is_led), 0)::float8 AS led_deal_count,
-        COALESCE(COUNT(*) FILTER (WHERE NOT is_led), 0)::float8 AS fed_deal_count
+        COALESCE(COUNT(*) FILTER (WHERE is_fed), 0)::float8 AS fed_deal_count
       FROM classified
       `,
       [args.orgId, qpId, repIds, partnerNames, repLen, partnerLen]

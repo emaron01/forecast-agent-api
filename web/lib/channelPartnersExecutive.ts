@@ -1,6 +1,6 @@
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
-import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
+import type { PartnerDealMotion } from "./partnerMotion";
 import { channelDealScopeWhereMerged, channelDealScopeWhereStrict } from "./channelDealScope";
 
 type MotionStatsRow = {
@@ -65,9 +65,27 @@ function normalizePartnerNames(names: string[]): string[] {
   );
 }
 
-// Executive Channel-tab motion classification should treat blank partner as Direct,
-// regardless of deal-registration data quality on the row.
-const directMotionWhereSql = `(o.partner_name IS NULL OR btrim(o.partner_name) = '')`;
+function directMotionWhereSql(alias: string): string {
+  return `(${alias}.partner_name IS NULL OR btrim(${alias}.partner_name) = '')`;
+}
+
+function partnerInfluencedWhereSql(alias: string): string {
+  return `(${alias}.partner_name IS NOT NULL AND btrim(${alias}.partner_name) <> '' AND ${alias}.deal_registration IS NOT TRUE)`;
+}
+
+function partnerSourcedWhereSql(alias: string): string {
+  return `(${alias}.partner_name IS NOT NULL AND btrim(${alias}.partner_name) <> '' AND ${alias}.deal_registration IS TRUE)`;
+}
+
+function channelTabMotionCaseSql(alias: string): string {
+  return `
+CASE
+  WHEN ${directMotionWhereSql(alias)} THEN 'direct'
+  WHEN ${partnerSourcedWhereSql(alias)} THEN 'partner_sourced'
+  WHEN ${partnerInfluencedWhereSql(alias)} THEN 'partner_influenced'
+  ELSE 'direct'
+END`.trim();
+}
 
 /**
  * Channel-scoped equivalent of `partnersExecutive` (CEI/WIC/PQS inputs).
@@ -109,7 +127,7 @@ export async function loadChannelPartnersExecutive(args: {
       ),
       channel_deals AS (
         SELECT
-          (${partnerMotionCaseSql("o")})::text AS motion,
+          (${channelTabMotionCaseSql("o")})::text AS motion,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
           o.create_date::timestamptz AS create_date,
@@ -154,7 +172,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND o.rep_id = ANY($5::bigint[])
-          AND ${directMotionWhereSql}
+          AND ${directMotionWhereSql("o")}
       ),
       base AS (
         SELECT
@@ -236,8 +254,8 @@ export async function loadChannelPartnersExecutive(args: {
             AND o.partner_name IS NOT NULL
             AND btrim(o.partner_name) <> ''
             AND (
-              ${partnerMotionPredicatesSql.isPartnerInfluenced}
-              OR ${partnerMotionPredicatesSql.isPartnerSourced}
+              ${partnerInfluencedWhereSql("o")}
+              OR ${partnerSourcedWhereSql("o")}
             )
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
@@ -278,7 +296,7 @@ export async function loadChannelPartnersExecutive(args: {
       ),
       channel_deals AS (
         SELECT
-          (${partnerMotionCaseSql("o")})::text AS motion,
+          (${channelTabMotionCaseSql("o")})::text AS motion,
           COALESCE(o.amount, 0)::float8 AS amount,
           (${crmBucketCaseSql("o")}) AS crm_bucket
         FROM opportunities o
@@ -319,7 +337,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
           AND o.rep_id = ANY($5::bigint[])
-          AND ${directMotionWhereSql}
+          AND ${directMotionWhereSql("o")}
       ),
       base AS (
         SELECT motion, amount
@@ -371,8 +389,8 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
           AND (
-            ${partnerMotionPredicatesSql.isPartnerInfluenced}
-            OR ${partnerMotionPredicatesSql.isPartnerSourced}
+            ${partnerInfluencedWhereSql("o")}
+            OR ${partnerSourcedWhereSql("o")}
           )
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
