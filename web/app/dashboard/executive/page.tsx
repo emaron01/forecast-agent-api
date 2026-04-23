@@ -25,7 +25,6 @@ import {
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
 import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
-import { loadExecutiveChannelScope } from "../../../lib/executiveChannelScope";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
@@ -1358,6 +1357,30 @@ export default async function ExecutiveDashboardPage({
     health_score: number | null;
   };
 
+  function mapChannelDealToTopPartnerDealRow(d: {
+    id: string;
+    deal_name: string;
+    account_name: string;
+    partner_name: string;
+    rep_name: string;
+    amount: number;
+    close_date: string;
+    health_score: number | null;
+  }): TopPartnerDealRow {
+    return {
+      opportunity_public_id: d.id,
+      partner_name: d.partner_name,
+      account_name: d.account_name,
+      opportunity_name: d.deal_name,
+      product: "",
+      amount: d.amount,
+      create_date: null,
+      close_date: d.close_date,
+      baseline_health_score: null,
+      health_score: d.health_score,
+    };
+  }
+
   type TopDealRow = {
     opportunity_public_id: string;
     rep_name: string | null;
@@ -1509,23 +1532,14 @@ export default async function ExecutiveDashboardPage({
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
-  const executiveChannelScope = showChannelContribution
-    ? await loadExecutiveChannelScope({
-        orgId: ctx.user.org_id,
-        visibleRepIds,
-      }).catch(() => ({
-          directTerritoryRepIds: [] as number[],
-          partnerTerritoryRepIds: [] as number[],
-          partnerNames: [] as string[],
-        }))
-    : {
-        directTerritoryRepIds: [] as number[],
-        partnerTerritoryRepIds: [] as number[],
-        partnerNames: [] as string[],
-      };
-  const executiveChannelDirectTerritoryRepIds = executiveChannelScope.directTerritoryRepIds;
-  const executiveChannelTerritoryRepIds = executiveChannelScope.partnerTerritoryRepIds;
-  const executiveChannelPartnerNames = executiveChannelScope.partnerNames;
+  const channelTeamPayload = await channelTeamPayloadPromise;
+  const executiveChannelSummary = channelTeamPayload?.channelDashboardSummary ?? null;
+  const executiveChannelScope = channelTeamPayload?.channelScope ?? {
+    territoryRepIds: [] as number[],
+    assignedPartnerNames: [] as string[],
+  };
+  const executiveChannelTerritoryRepIds = executiveChannelScope.territoryRepIds;
+  const executiveChannelPartnerNames = executiveChannelScope.assignedPartnerNames;
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
@@ -1608,8 +1622,6 @@ export default async function ExecutiveDashboardPage({
     topDealsLost = [];
   }
 
-  const channelTeamPayload = await channelTeamPayloadPromise;
-
   let channelContributionRows: ChannelLedFedRow[] = [];
   try {
     if (
@@ -1636,11 +1648,50 @@ export default async function ExecutiveDashboardPage({
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
           territoryRepIds: executiveChannelTerritoryRepIds,
-          directTerritoryRepIds: executiveChannelDirectTerritoryRepIds,
           partnerNames: executiveChannelPartnerNames,
-          scopeMode: "merged",
         }).catch(() => null)
       : null;
+
+  const executiveChannelTopPartnerWon =
+    executiveChannelSummary?.topPartnerDealsWon.map((d) => mapChannelDealToTopPartnerDealRow(d)) ?? topPartnerWon;
+  const executiveChannelTopPartnerLost =
+    executiveChannelSummary?.topPartnerDealsLost.map((d) => mapChannelDealToTopPartnerDealRow(d)) ?? topPartnerLost;
+  const executiveChannelRevenueTabProps = {
+    basePath: "/dashboard/executive",
+    periods: executiveChannelSummary?.periods ?? summary.periods,
+    quotaPeriodId: summary.selectedQuotaPeriodId,
+    orgId: ctx.user.org_id,
+    reps: summary.reps,
+    fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "—",
+    fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "—",
+    stageProbabilities: summary.stageProbabilities,
+    healthModifiers: summary.healthModifiers,
+    repDirectory: summary.repDirectory,
+    myRepId: summary.myRepId,
+    repRollups: summary.repRollups,
+    productsClosedWon: summary.productsClosedWon,
+    productsClosedWonPrevSummary: channelContributionHero?.productsClosedWonPrevSummary ?? summary.productsClosedWonPrevSummary,
+    productsClosedWonByRep: channelTeamPayload?.productsClosedWonByRep ?? summary.productsClosedWonByRep,
+    quarterKpis: channelContributionHero?.quarterKpis ?? summary.quarterKpis,
+    pipelineMomentum: channelContributionHero?.pipelineMomentum ?? summary.pipelineMomentum,
+    closedWonFyYtd: summary.closedWonFyYtd,
+    crmTotals: channelContributionHero?.crmForecast ?? summary.crmForecast,
+    partnersExecutive: channelPartnersExecutive ?? summary.partnersExecutive,
+    quota: summary.quota,
+    aiForecast: summary.aiForecast.weighted_forecast,
+    crmForecast: summary.crmForecast.weighted_forecast,
+    gap: summary.forecastGap,
+    bucketDeltas: {
+      commit: summary.bucketDeltas.commit,
+      best_case: summary.bucketDeltas.best_case,
+      pipeline: summary.bucketDeltas.pipeline,
+    },
+    aiPctToGoal: summary.pctToGoal,
+    leftToGo: summary.leftToGo,
+    commitAdmission: summary.commitAdmission,
+    commitDealPanels: summary.commitDealPanels,
+    defaultTopN: 5,
+  };
 
   if (selectedPeriodId && comparePeriodIds.length) {
     const teamResult = await buildOrgSubtree({
@@ -2116,8 +2167,8 @@ export default async function ExecutiveDashboardPage({
           reviewQueueDeals={reviewQueueDeals}
           currentUserId={ctx.user.id}
           showManagerReviewQueue={showManagerReviewQueue}
-          topPartnerWon={topPartnerWon}
-          topPartnerLost={topPartnerLost}
+          topPartnerWon={executiveChannelTopPartnerWon}
+          topPartnerLost={executiveChannelTopPartnerLost}
           topDealsWon={topDealsWon}
           topDealsLost={topDealsLost}
           reportBuilderRepRows={reportBuilderRepRows}
@@ -2150,42 +2201,7 @@ export default async function ExecutiveDashboardPage({
           channelContributionRows={channelContributionRows}
           channelPartnersExecutive={channelPartnersExecutive}
           channelTeamPayload={channelTeamPayload}
-          revenueTabProps={{
-            basePath: "/dashboard/executive",
-            periods: summary.periods,
-            quotaPeriodId: summary.selectedQuotaPeriodId,
-            orgId: ctx.user.org_id,
-            reps: summary.reps,
-            fiscalYear: String(summary.selectedPeriod?.fiscal_year || summary.selectedFiscalYear || "").trim() || "â€”",
-            fiscalQuarter: String(summary.selectedPeriod?.fiscal_quarter || "").trim() || "â€”",
-            stageProbabilities: summary.stageProbabilities,
-            healthModifiers: summary.healthModifiers,
-            repDirectory: summary.repDirectory,
-            myRepId: summary.myRepId,
-            repRollups: summary.repRollups,
-            productsClosedWon: summary.productsClosedWon,
-            productsClosedWonPrevSummary: summary.productsClosedWonPrevSummary,
-            productsClosedWonByRep: summary.productsClosedWonByRep,
-            quarterKpis: summary.quarterKpis,
-            pipelineMomentum: summary.pipelineMomentum,
-            closedWonFyYtd: summary.closedWonFyYtd,
-            crmTotals: summary.crmForecast,
-            partnersExecutive: summary.partnersExecutive,
-            quota: summary.quota,
-            aiForecast: summary.aiForecast.weighted_forecast,
-            crmForecast: summary.crmForecast.weighted_forecast,
-            gap: summary.forecastGap,
-            bucketDeltas: {
-              commit: summary.bucketDeltas.commit,
-              best_case: summary.bucketDeltas.best_case,
-              pipeline: summary.bucketDeltas.pipeline,
-            },
-            aiPctToGoal: summary.pctToGoal,
-            leftToGo: summary.leftToGo,
-            commitAdmission: summary.commitAdmission,
-            commitDealPanels: summary.commitDealPanels,
-            defaultTopN: 5,
-          }}
+          revenueTabProps={executiveChannelRevenueTabProps}
         />
         </ExecutiveBriefingProvider>
       </main>

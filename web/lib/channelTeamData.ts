@@ -603,6 +603,10 @@ export type BuildChannelTeamPayloadResult = {
   channelViewerRepId: number | null;
   /** Same object as `getChannelDashboardSummary` inside this build (for channel page reuse). */
   channelDashboardSummary: ChannelDashboardSummary | null;
+  channelScope: {
+    territoryRepIds: number[];
+    assignedPartnerNames: string[];
+  };
   productsClosedWonByRep: ChannelProductWonByRepRow[];
   productsClosedWonByRepYtd: ChannelProductWonByRepRow[];
   /** Deduplicated across channel scopes (Indirect manager cards). */
@@ -1634,6 +1638,10 @@ export async function buildChannelTeamPayload(
   return {
     ...assembled,
     channelDashboardSummary: channelSummary,
+    channelScope: {
+      territoryRepIds,
+      assignedPartnerNames,
+    },
     productsClosedWonByRep: channelProductsClosedWonByRep,
     productsClosedWonByRepYtd: channelProductsClosedWonByRepYtd,
     orgLevelProductsCurrentQ,
