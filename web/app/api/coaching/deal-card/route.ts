@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { computeCommitAdmission, isCommitAdmissionApplicable } from "../../../../lib/commitAdmission";
-import { computeConfidence } from "../../../../lib/confidence";
+import { computeConfidence, type ScoreSource } from "../../../../lib/confidence";
 import { isAdmin, isChannelRole, isSalesLeader } from "../../../../lib/roleHelpers";
 import { pool } from "../../../../lib/pool";
 
@@ -61,6 +61,14 @@ function uniqueNonEmpty(lines: Array<string | null | undefined>) {
 function cleanText(v: any) {
   const s = String(v ?? "").trim();
   return s ? s : null;
+}
+
+function normalizeScoreSource(value: unknown): ScoreSource {
+  const s = String(value ?? "").trim().toLowerCase();
+  if (s === "rep_review" || s === "ai_notes" || s === "manager_override" || s === "system") {
+    return s;
+  }
+  return "system";
 }
 
 function stageBucketFromStages(
@@ -232,6 +240,7 @@ export async function GET(req: Request) {
       process_confidence: string | null;
       timing_confidence: string | null;
       budget_confidence: string | null;
+      health_score_source: string | null;
       audit_details: any | null;
       updated_at: string | null;
       rep_public_id: string | null;
@@ -268,6 +277,7 @@ export async function GET(req: Request) {
         o.risk_summary, o.next_steps,
         o.paper_confidence, o.process_confidence,
         o.timing_confidence, o.budget_confidence,
+        o.health_score_source,
         o.audit_details,
         o.updated_at,
         r.public_id::text AS rep_public_id,
@@ -321,9 +331,11 @@ export async function GET(req: Request) {
       }
     }
 
+    const persistedScoring = (row as any)?.audit_details?.scoring ?? null;
+    const scoreSource = normalizeScoreSource(persistedScoring?.score_source ?? row.health_score_source);
     const computedScoring = computeConfidence({
       opportunity: row,
-      source: "system",
+      source: scoreSource,
       now: new Date(),
     });
     const confidenceBand = computedScoring.confidence_band;
@@ -414,4 +426,3 @@ export async function GET(req: Request) {
     return jsonError(500, e?.message || String(e));
   }
 }
-
