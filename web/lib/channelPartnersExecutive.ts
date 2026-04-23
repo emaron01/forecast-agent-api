@@ -75,6 +75,7 @@ export async function loadChannelPartnersExecutive(args: {
   quotaPeriodId: string;
   prevQuotaPeriodId?: string | null;
   territoryRepIds: number[];
+  directTerritoryRepIds?: number[];
   partnerNames: string[];
   scopeMode?: "strict" | "merged";
 }) {
@@ -82,6 +83,9 @@ export async function loadChannelPartnersExecutive(args: {
   const quotaPeriodId = String(args.quotaPeriodId || "").trim();
   const prevQpId = String(args.prevQuotaPeriodId || "").trim();
   const territoryRepIds = (args.territoryRepIds || []).filter((id) => Number.isFinite(id) && id > 0);
+  const directTerritoryRepIds = (args.directTerritoryRepIds || args.territoryRepIds || []).filter(
+    (id) => Number.isFinite(id) && id > 0
+  );
   const partnerNames = normalizePartnerNames(args.partnerNames || []);
   const channelScopeWhere =
     args.scopeMode === "merged"
@@ -145,7 +149,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
-          AND o.rep_id = ANY($3::bigint[])
+          AND o.rep_id = ANY($5::bigint[])
           AND ${partnerMotionPredicatesSql.isDirect}
       ),
       base AS (
@@ -184,7 +188,7 @@ export async function loadChannelPartnersExecutive(args: {
       GROUP BY motion
       ORDER BY motion ASC
       `,
-      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames, directTerritoryRepIds]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -310,7 +314,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
-          AND o.rep_id = ANY($3::bigint[])
+          AND o.rep_id = ANY($5::bigint[])
           AND ${partnerMotionPredicatesSql.isDirect}
       ),
       base AS (
@@ -329,7 +333,7 @@ export async function loadChannelPartnersExecutive(args: {
       GROUP BY motion
       ORDER BY motion ASC
       `,
-      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames, directTerritoryRepIds]
     )
     .then((r) => r.rows || [])
     .catch(() => []);
@@ -415,6 +419,7 @@ export async function loadChannelPartnersExecutive(args: {
       orgId,
       quotaPeriodId: prevQpId,
       territoryRepIds,
+      directTerritoryRepIds,
       partnerNames,
       scopeMode: args.scopeMode,
     }).catch(() => null);

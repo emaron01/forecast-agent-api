@@ -3,7 +3,8 @@ import { HIERARCHY } from "./roleHelpers";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 
 export type ExecutiveChannelScope = {
-  territoryRepIds: number[];
+  directTerritoryRepIds: number[];
+  partnerTerritoryRepIds: number[];
   partnerNames: string[];
 };
 
@@ -16,7 +17,7 @@ export async function loadExecutiveChannelScope(args: {
     new Set((args.visibleRepIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))
   );
   if (!Number.isFinite(orgId) || orgId <= 0 || visibleRepIds.length === 0) {
-    return { territoryRepIds: [], partnerNames: [] };
+    return { directTerritoryRepIds: [], partnerTerritoryRepIds: [], partnerNames: [] };
   }
 
   const visibleRepIdSet = new Set(visibleRepIds);
@@ -44,7 +45,9 @@ export async function loadExecutiveChannelScope(args: {
     )
     .catch(() => []);
 
-  if (channelScopeUserIds.length === 0) return { territoryRepIds: [], partnerNames: [] };
+  if (channelScopeUserIds.length === 0) {
+    return { directTerritoryRepIds: [], partnerTerritoryRepIds: [], partnerNames: [] };
+  }
 
   const scopes = await Promise.all(
     channelScopeUserIds.map((channelUserId) =>
@@ -65,9 +68,18 @@ export async function loadExecutiveChannelScope(args: {
     .filter((scope) => scope.repIds.length > 0);
 
   return {
-    territoryRepIds: Array.from(
+    directTerritoryRepIds: Array.from(
       new Set(
         filteredScopes
+          .flatMap((scope) => scope.repIds)
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+    ),
+    partnerTerritoryRepIds: Array.from(
+      new Set(
+        filteredScopes
+          .filter((scope) => scope.partnerNames.length === 0)
           .flatMap((scope) => scope.repIds)
           .map((id) => Number(id))
           .filter((id) => Number.isFinite(id) && id > 0)

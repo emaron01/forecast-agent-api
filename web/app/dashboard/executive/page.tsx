@@ -1513,9 +1513,18 @@ export default async function ExecutiveDashboardPage({
     ? await loadExecutiveChannelScope({
         orgId: ctx.user.org_id,
         visibleRepIds,
-      }).catch(() => ({ territoryRepIds: [] as number[], partnerNames: [] as string[] }))
-    : { territoryRepIds: [] as number[], partnerNames: [] as string[] };
-  const executiveChannelTerritoryRepIds = executiveChannelScope.territoryRepIds;
+      }).catch(() => ({
+          directTerritoryRepIds: [] as number[],
+          partnerTerritoryRepIds: [] as number[],
+          partnerNames: [] as string[],
+        }))
+    : {
+        directTerritoryRepIds: [] as number[],
+        partnerTerritoryRepIds: [] as number[],
+        partnerNames: [] as string[],
+      };
+  const executiveChannelDirectTerritoryRepIds = executiveChannelScope.directTerritoryRepIds;
+  const executiveChannelTerritoryRepIds = executiveChannelScope.partnerTerritoryRepIds;
   const executiveChannelPartnerNames = executiveChannelScope.partnerNames;
 
   let topPartnerWon: any[] = [];
@@ -1627,6 +1636,7 @@ export default async function ExecutiveDashboardPage({
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
           territoryRepIds: executiveChannelTerritoryRepIds,
+          directTerritoryRepIds: executiveChannelDirectTerritoryRepIds,
           partnerNames: executiveChannelPartnerNames,
           scopeMode: "merged",
         }).catch(() => null)
