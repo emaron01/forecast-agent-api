@@ -1,6 +1,7 @@
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
 import { partnerMotionCaseSql, type PartnerDealMotion } from "./partnerMotion";
+import { channelDealScopeWhereMerged } from "./channelDealScope";
 
 type MotionStatsRow = {
   motion: PartnerDealMotion;
@@ -69,15 +70,19 @@ export async function loadExecutiveChannelTabPartners(args: {
   orgId: number;
   quotaPeriodId: string;
   prevQuotaPeriodId?: string | null;
-  visibleRepIds: number[];
+  territoryRepIds: number[];
+  partnerNames: string[];
 }) {
   const orgId = Number(args.orgId);
   const quotaPeriodId = String(args.quotaPeriodId || "").trim();
   const prevQuotaPeriodId = String(args.prevQuotaPeriodId || "").trim();
-  const visibleRepIds = Array.from(
-    new Set((args.visibleRepIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))
+  const territoryRepIds = Array.from(
+    new Set((args.territoryRepIds || []).map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))
   );
-  if (!quotaPeriodId || visibleRepIds.length === 0) return null;
+  const partnerNames = Array.from(
+    new Set((args.partnerNames || []).map((name) => String(name || "").trim().toLowerCase()).filter(Boolean))
+  );
+  if (!quotaPeriodId || (territoryRepIds.length === 0 && partnerNames.length === 0)) return null;
 
   const baseDealsSql = `
     WITH qp AS (
@@ -107,10 +112,10 @@ export async function loadExecutiveChannelTabPartners(args: {
        AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       JOIN qp ON TRUE
       WHERE o.org_id = $1::bigint
-        AND o.rep_id = ANY($3::bigint[])
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.period_start
         AND o.close_date <= qp.period_end
+        ${channelDealScopeWhereMerged(3, 4)}
     )
   `;
 
@@ -152,7 +157,7 @@ export async function loadExecutiveChannelTabPartners(args: {
       GROUP BY motion
       ORDER BY motion ASC
       `,
-      [orgId, quotaPeriodId, visibleRepIds]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
     )
     .then((res) => res.rows || [])
     .catch(() => []);
@@ -189,7 +194,7 @@ export async function loadExecutiveChannelTabPartners(args: {
       ORDER BY won_amount DESC NULLS LAST, opps DESC, partner_name ASC
       LIMIT 30
       `,
-      [orgId, quotaPeriodId, visibleRepIds]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
     )
     .then((res) => res.rows || [])
     .catch(() => []);
@@ -207,7 +212,7 @@ export async function loadExecutiveChannelTabPartners(args: {
       GROUP BY motion
       ORDER BY motion ASC
       `,
-      [orgId, quotaPeriodId, visibleRepIds]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
     )
     .then((res) => res.rows || [])
     .catch(() => []);
@@ -228,7 +233,7 @@ export async function loadExecutiveChannelTabPartners(args: {
       ORDER BY open_amount DESC NULLS LAST, open_opps DESC, partner_name ASC
       LIMIT 120
       `,
-      [orgId, quotaPeriodId, visibleRepIds]
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
     )
     .then((res) => res.rows || [])
     .catch(() => []);
@@ -260,7 +265,8 @@ export async function loadExecutiveChannelTabPartners(args: {
     const prev = await loadExecutiveChannelTabPartners({
       orgId,
       quotaPeriodId: prevQuotaPeriodId,
-      visibleRepIds,
+      territoryRepIds,
+      partnerNames,
     }).catch(() => null);
     if (!prev) return null;
     const d0 = prev.direct;

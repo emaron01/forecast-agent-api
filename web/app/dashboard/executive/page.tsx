@@ -30,6 +30,7 @@ import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
+import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
 
@@ -1431,9 +1432,12 @@ export default async function ExecutiveDashboardPage({
     dateStart?: string | null;
     dateEnd?: string | null;
     repIds: number[] | null;
+    partnerNames?: string[] | null;
   }): Promise<TopPartnerDealRow[]> {
     const wantWon = args.outcome === "won";
     const useRepFilter = !!(args.repIds && args.repIds.length);
+    const usePartnerFilter = !!(args.partnerNames && args.partnerNames.length);
+    if (!useRepFilter && !usePartnerFilter) return [];
     const { rows } = await pool.query<TopPartnerDealRow>(
       `
     WITH qp AS (
@@ -1462,7 +1466,10 @@ export default async function ExecutiveDashboardPage({
        AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
       JOIN qp ON TRUE
       WHERE o.org_id = $1
-        AND (NOT $8::boolean OR o.rep_id = ANY($7::bigint[]))
+        AND (
+          ($8::boolean AND o.rep_id = ANY($7::bigint[]))
+          OR ($10::boolean AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($9::text[]))
+        )
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
         AND o.close_date IS NOT NULL
@@ -1485,10 +1492,76 @@ export default async function ExecutiveDashboardPage({
     ORDER BY amount DESC NULLS LAST, o.id DESC
     LIMIT $4
     `,
-      [args.orgId, args.quotaPeriodId, wantWon, args.limit, args.dateStart || null, args.dateEnd || null, args.repIds || [], useRepFilter]
+      [
+        args.orgId,
+        args.quotaPeriodId,
+        wantWon,
+        args.limit,
+        args.dateStart || null,
+        args.dateEnd || null,
+        args.repIds || [],
+        useRepFilter,
+        (args.partnerNames || []).map((name) => String(name || "").trim().toLowerCase()).filter(Boolean),
+        usePartnerFilter,
+      ]
     );
     return rows || [];
   }
+
+  const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
+  const executiveChannelScopeUserIds =
+    showChannelContribution
+      ? await pool
+          .query<{ user_id: number }>(
+            `
+            SELECT DISTINCT r.user_id
+            FROM reps r
+            INNER JOIN users u
+              ON u.id = r.user_id
+             AND u.org_id = $1::bigint
+            WHERE r.organization_id = $1::bigint
+              AND (r.active IS TRUE OR r.active IS NULL)
+              AND (u.active IS TRUE OR u.active IS NULL)
+              AND u.hierarchy_level = $2::int
+              AND r.user_id IS NOT NULL
+            ORDER BY r.user_id ASC
+            `,
+            [ctx.user.org_id, HIERARCHY.CHANNEL_REP]
+          )
+          .then((res) =>
+            (res.rows || [])
+              .map((row) => Number(row.user_id))
+              .filter((id) => Number.isFinite(id) && id > 0)
+          )
+          .catch(() => [])
+      : [];
+  const executiveChannelTerritoryScopes =
+    showChannelContribution && executiveChannelScopeUserIds.length > 0
+      ? await Promise.all(
+          executiveChannelScopeUserIds.map((channelUserId) =>
+            getChannelTerritoryRepIds({
+              orgId: ctx.user.org_id,
+              channelUserId,
+            }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
+          )
+        )
+      : [];
+  const executiveChannelTerritoryRepIds = Array.from(
+    new Set(
+      executiveChannelTerritoryScopes
+        .flatMap((scope) => scope.repIds)
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  );
+  const executiveChannelPartnerNames = Array.from(
+    new Set(
+      executiveChannelTerritoryScopes
+        .flatMap((scope) => scope.partnerNames)
+        .map((name) => String(name || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
@@ -1496,7 +1569,12 @@ export default async function ExecutiveDashboardPage({
   let topDealsLost: any[] = [];
   let channelContributionHero: ChannelPartnerHeroProps | null = null;
   try {
-    if (selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
+    if (
+      showChannelContribution &&
+      selectedPeriod &&
+      selectedPeriodId &&
+      (executiveChannelTerritoryRepIds.length > 0 || executiveChannelPartnerNames.length > 0)
+    ) {
       const [won, lost, hero] = await Promise.all([
         listTopPartnerDealsExec({
           orgId: ctx.user.org_id,
@@ -1505,7 +1583,8 @@ export default async function ExecutiveDashboardPage({
           limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
-          repIds: visibleRepIds,
+          repIds: executiveChannelTerritoryRepIds,
+          partnerNames: executiveChannelPartnerNames,
         }),
         listTopPartnerDealsExec({
           orgId: ctx.user.org_id,
@@ -1514,13 +1593,15 @@ export default async function ExecutiveDashboardPage({
           limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
-          repIds: visibleRepIds,
+          repIds: executiveChannelTerritoryRepIds,
+          partnerNames: executiveChannelPartnerNames,
         }),
         loadChannelPartnerHeroProps({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
-          repIds: visibleRepIds,
+          repIds: executiveChannelTerritoryRepIds,
+          partnerNames: executiveChannelPartnerNames,
         }),
       ]);
       topPartnerWon = won ?? [];
@@ -1564,15 +1645,20 @@ export default async function ExecutiveDashboardPage({
   }
 
   const channelTeamPayload = await channelTeamPayloadPromise;
-  const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
 
   let channelContributionRows: ChannelLedFedRow[] = [];
   try {
-    if (showChannelContribution && selectedPeriod && visibleRepIds.length > 0 && selectedPeriodId) {
+    if (
+      showChannelContribution &&
+      selectedPeriod &&
+      selectedPeriodId &&
+      (executiveChannelTerritoryRepIds.length > 0 || executiveChannelPartnerNames.length > 0)
+    ) {
       channelContributionRows = await loadChannelLedFedRows({
         orgId: ctx.user.org_id,
         quotaPeriodId: selectedPeriodId,
-        repIds: visibleRepIds,
+        repIds: executiveChannelTerritoryRepIds,
+        partnerNames: executiveChannelPartnerNames,
       });
     }
   } catch {
@@ -1585,7 +1671,8 @@ export default async function ExecutiveDashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
-          visibleRepIds,
+          territoryRepIds: executiveChannelTerritoryRepIds,
+          partnerNames: executiveChannelPartnerNames,
         }).catch(() => null)
       : null;
 
