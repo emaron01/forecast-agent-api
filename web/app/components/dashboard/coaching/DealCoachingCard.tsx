@@ -56,17 +56,6 @@ export type DealCoachingCardDeal = {
   partner_name?: string | null;
 };
 
-function fmtMoney(n: any) {
-  const v = Number(n || 0);
-  if (!Number.isFinite(v)) return "—";
-  return v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-}
-
-function deltaClass(n: number) {
-  if (!Number.isFinite(n) || n === 0) return "text-[color:var(--sf-text-secondary)]";
-  return n > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
-}
-
 function fmtDateMmddyyyy(raw: string | null | undefined) {
   const s = String(raw || "").trim();
   if (!s) return "—";
@@ -102,15 +91,6 @@ function scoreBadgeClass(score: number | null) {
   if (s >= 3) return "border-[#2ECC71]/50 bg-[#2ECC71]/10 text-[#2ECC71]";
   if (s >= 2) return "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#F1C40F]";
   return "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]";
-}
-
-function healthPctClass(pct: number | null) {
-  if (pct == null) return "text-[color:var(--sf-text-secondary)]";
-  const n = Number(pct);
-  if (!Number.isFinite(n)) return "text-[color:var(--sf-text-secondary)]";
-  if (n >= 80) return "text-[#2ECC71]";
-  if (n >= 50) return "text-[#F1C40F]";
-  return "text-[#E74C3C]";
 }
 
 function canonicalTitle(key: string) {
@@ -151,13 +131,14 @@ function stageOrder(s: string | null | undefined) {
   return null;
 }
 
-function stageDeltaClass(crm: string, ai: string) {
+function stageDeltaBadgeClass(crm: string, ai: string) {
   const crmO = stageOrder(crm);
   const aiO = stageOrder(ai);
-  if (crmO == null || aiO == null) return "text-[color:var(--sf-text-primary)]";
-  if (aiO < crmO) return "text-[#E74C3C]"; // downgraded
-  if (aiO > crmO) return "text-[#2ECC71]"; // upgraded
-  return "text-[color:var(--sf-text-primary)]"; // matched
+  const base = "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold";
+  if (crmO == null || aiO == null) return `${base} border-[color:var(--sf-border)] text-[color:var(--sf-text-primary)]`;
+  if (aiO < crmO) return `${base} border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]`;
+  if (aiO > crmO) return `${base} border-[#2ECC71]/60 bg-[#2ECC71]/10 text-[#2ECC71]`;
+  return `${base} border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#B8860B]`;
 }
 
 export type DealCoachingCardProps = {
@@ -195,7 +176,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
               Sales Rep {repLabel} · Close {fmtDateMmddyyyy(props.deal.close_date)} · CRM Forecast Stage{" "}
               <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span>
               {" · AI Verdict Stage "}
-              <span className={["font-semibold", stageDeltaClass(crmStageLabel, aiStageLabel)].join(" ")}>{aiStageLabel}</span>
+              <span className={stageDeltaBadgeClass(crmStageLabel, aiStageLabel)}>{aiStageLabel}</span>
               {partnerLabel ? (
                 <>
                   {" "}
@@ -257,31 +238,6 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
               ) : null}
             </div>
           ) : null}
-        </div>
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-4">
-        <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs text-[color:var(--sf-text-secondary)]">Amount</div>
-          <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.deal.amount)}</div>
-          <div className="mt-2">
-            <div className="text-xs text-[color:var(--sf-text-secondary)]">Health</div>
-            <div className={`mt-0.5 text-lg font-extrabold leading-none ${healthPctClass(props.deal.health.health_pct)}`}>
-              {props.deal.health.health_pct == null ? "—" : `${props.deal.health.health_pct}%`}
-            </div>
-          </div>
-        </div>
-        <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs text-[color:var(--sf-text-secondary)]">CRM weighted</div>
-          <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.deal.weighted.crm_weighted)}</div>
-        </div>
-        <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs text-[color:var(--sf-text-secondary)]">AI weighted</div>
-          <div className="mt-0.5 font-mono text-sm font-semibold text-[color:var(--sf-text-primary)]">{fmtMoney(props.deal.weighted.ai_weighted)}</div>
-        </div>
-        <div className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-          <div className="text-xs text-[color:var(--sf-text-secondary)]">Gap</div>
-          <div className={`mt-0.5 font-mono text-sm font-semibold ${deltaClass(props.deal.weighted.gap)}`}>{fmtMoney(props.deal.weighted.gap)}</div>
         </div>
       </div>
 

@@ -25,6 +25,8 @@ export type ManagerReviewQueueProps = {
   currentUserId: number;
 };
 
+type ReviewQueueDeal = ManagerReviewQueueProps["deals"][number];
+
 function fmtMoney(n: number | null) {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -40,6 +42,90 @@ function healthColorClass(pct: number | null) {
   if (pct >= 80) return "text-[#2ECC71]";
   if (pct >= 50) return "text-[#F1C40F]";
   return "text-[#E74C3C]";
+}
+
+function riskPillMeta(score: number | null) {
+  const pct = healthPct(score);
+  if (pct == null) {
+    return {
+      label: "Unknown",
+      className: "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]",
+    };
+  }
+  if (pct >= 80) {
+    return {
+      label: "Low Risk",
+      className: "border-[#2ECC71]/60 bg-[#2ECC71]/10 text-[#2ECC71]",
+    };
+  }
+  if (pct >= 50) {
+    return {
+      label: "Med Risk",
+      className: "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#B8860B]",
+    };
+  }
+  return {
+    label: "High Risk",
+    className: "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]",
+  };
+}
+
+function statusMeta(deal: ReviewQueueDeal, delta: number | null, justSent: boolean) {
+  if (deal.review_requested_at) {
+    if (deal.score_after_request == null) {
+      return {
+        shortText: "Pending review",
+        fullText: deal.review_request_note
+          ? `Review Requested — not reviewed yet. Note: ${deal.review_request_note}`
+          : "Review Requested — not reviewed yet",
+        className: "bg-yellow-500/10 text-yellow-600",
+      };
+    }
+    if (deal.score_before_request == null) {
+      return {
+        shortText: "No baseline",
+        fullText: deal.review_request_note
+          ? `Review Requested — no baseline yet. Note: ${deal.review_request_note}`
+          : "Review Requested — no baseline yet",
+        className: "bg-yellow-500/10 text-yellow-600",
+      };
+    }
+    if (delta != null) {
+      if (delta > 0) {
+        return {
+          shortText: `+${delta}pp`,
+          fullText: `Score +${delta}pp after review`,
+          className: "bg-green-500/10 text-green-600",
+        };
+      }
+      if (delta === 0) {
+        return {
+          shortText: "No change",
+          fullText: "No change after review",
+          className: "bg-yellow-500/10 text-yellow-600",
+        };
+      }
+      return {
+        shortText: `-${Math.abs(delta)}pp`,
+        fullText: `Score -${Math.abs(delta)}pp after review`,
+        className: "bg-red-500/10 text-red-600",
+      };
+    }
+  }
+
+  if (justSent) {
+    return {
+      shortText: "Requested",
+      fullText: "Review Requested",
+      className: "bg-green-500/10 text-green-500",
+    };
+  }
+
+  return {
+    shortText: "—",
+    fullText: "No active review status",
+    className: "bg-transparent text-[color:var(--sf-text-secondary)]",
+  };
 }
 
 function formatDate(s: string | null) {
@@ -240,6 +326,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               >
                 Health % <SortIcon column="health" />
               </th>
+              <th className="px-3 py-2 text-right text-xs font-semibold">Amt</th>
               <th
                 className="cursor-pointer select-none px-3 py-2 text-left text-xs font-semibold hover:bg-[color:var(--sf-border)]"
                 onClick={() => toggleSort("stage")}
@@ -250,7 +337,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                 className="cursor-pointer select-none px-3 py-2 text-left text-xs font-semibold hover:bg-[color:var(--sf-border)]"
                 onClick={() => toggleSort("lastReview")}
               >
-                Last Matthew Review <SortIcon column="lastReview" />
+                Last Review <SortIcon column="lastReview" />
               </th>
               <th className="px-3 py-2 text-left text-xs font-semibold">Status</th>
               <th className="px-3 py-2 text-left text-xs font-semibold">Action</th>
@@ -266,12 +353,24 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               const scoreAfter = d.score_after_request;
               const delta =
                 scoreBefore != null && scoreAfter != null ? Math.round(((scoreAfter - scoreBefore) / 30) * 100) : null;
+              const risk = riskPillMeta(d.health_score);
+              const status = statusMeta(d, delta, justSent);
               return (
                 <Fragment key={d.id}>
                   <tr className="border-t border-[color:var(--sf-border)]">
-                    <td className="px-3 py-2">{d.account_name ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span
+                          className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${risk.className}`}
+                          title={risk.label}
+                        >
+                          {risk.label}
+                        </span>
+                        <span className="truncate">{d.account_name ?? "—"}</span>
+                      </div>
+                    </td>
                     <td
-                      className="px-3 py-2 cursor-pointer hover:text-[color:var(--sf-accent-primary)]"
+                      className="cursor-pointer px-3 py-2 hover:text-[color:var(--sf-accent-primary)]"
                       onClick={() => toggleDealExpand(d.id)}
                     >
                       <span className="flex items-center gap-1">
@@ -283,52 +382,16 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                     <td className={`px-3 py-2 text-right font-mono ${healthColorClass(pct)}`}>
                       {pct != null ? `${pct}%` : "—"}
                     </td>
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtMoney(d.amount)}</td>
                     <td className="px-3 py-2">{d.forecast_stage ?? "—"}</td>
                     <td className="px-3 py-2">{formatDate(d.last_reviewed_at)}</td>
                     <td className="px-3 py-2">
-                      {hasRequest ? (
-                        d.score_after_request == null ? (
-                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
-                            Review Requested — not reviewed yet
-                            {d.review_request_note ? (
-                              <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
-                                · {d.review_request_note.slice(0, 20)}
-                                {d.review_request_note.length > 20 ? "…" : ""}
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : d.score_before_request == null ? (
-                          <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-500">
-                            Review Requested — no baseline yet
-                            {d.review_request_note ? (
-                              <span className="ml-1 truncate max-w-[120px]" title={d.review_request_note}>
-                                · {d.review_request_note.slice(0, 20)}
-                                {d.review_request_note.length > 20 ? "…" : ""}
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : delta != null ? (
-                          delta > 0 ? (
-                            <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-600">
-                              Score +{delta}pp after review
-                            </span>
-                          ) : delta === 0 ? (
-                            <span className="inline-flex items-center rounded-full bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-600">
-                              No change after review
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-600">
-                              Score -{Math.abs(delta)}pp after review
-                            </span>
-                          )
-                        ) : null
-                      ) : justSent ? (
-                        <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs text-green-500">
-                          Review Requested
-                        </span>
-                      ) : (
-                        <span className="text-xs text-[color:var(--sf-text-secondary)]">—</span>
-                      )}
+                      <span
+                        className={`inline-flex max-w-[170px] items-center truncate rounded-full px-2 py-0.5 text-xs ${status.className}`}
+                        title={status.fullText}
+                      >
+                        {status.shortText}
+                      </span>
                     </td>
                     <td className="px-3 py-2">
                       {hasRequest && d.score_after_request != null ? (
@@ -368,7 +431,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                   </tr>
                   {expandedDealId === d.id && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-2">
+                      <td colSpan={9} className="px-3 py-2">
                         {dealLoading === d.id ? (
                           <div className="text-sm text-[color:var(--sf-text-secondary)] py-4 text-center">Loading coaching card...</div>
                         ) : dealCache[d.id] ? (
@@ -389,7 +452,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                   )}
                   {isOpen ? (
                     <tr key={`${d.id}-form`} className="border-t border-[color:var(--sf-border)]">
-                      <td colSpan={8} className="px-3 py-2 align-top">
+                      <td colSpan={9} className="px-3 py-2 align-top">
                         <div
                           ref={reviewRequestFormRef}
                           className="rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] p-3 scroll-mt-4"
@@ -436,7 +499,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
             })}
             {filteredAndSortedDeals.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
+                <td colSpan={9} className="px-3 py-4 text-center text-sm text-[color:var(--sf-text-secondary)]">
                   No open opportunities in the current quarter for your team.
                 </td>
               </tr>

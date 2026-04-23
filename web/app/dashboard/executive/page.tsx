@@ -1633,7 +1633,7 @@ export default async function ExecutiveDashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
-          territoryRepIds: executiveChannelTerritoryRepIds,
+          territoryRepIds: visibleRepIds,
           partnerNames: executiveChannelPartnerNames,
         }).catch(() => null)
       : null;

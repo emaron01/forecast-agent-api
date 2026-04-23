@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
+import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
+import { computeCommitAdmission, isCommitAdmissionApplicable } from "../../../../lib/commitAdmission";
 import { isAdmin, isChannelRole, isSalesLeader } from "../../../../lib/roleHelpers";
 import { pool } from "../../../../lib/pool";
 
@@ -100,6 +102,21 @@ function stageBucketFromStages(
 function bucketLabel(b: "commit" | "best_case" | "pipeline" | null): "Commit" | "Best Case" | "Pipeline" {
   if (b === "commit") return "Commit";
   if (b === "best_case") return "Best Case";
+  return "Pipeline";
+}
+
+function normalizeOpenStageLabel(stageLike: any): "Commit" | "Best Case" | "Pipeline" | null {
+  const s = String(stageLike || "").trim().toLowerCase();
+  if (!s) return null;
+  if (s.includes("commit")) return "Commit";
+  if (s.includes("best")) return "Best Case";
+  if (s.includes("pipeline")) return "Pipeline";
+  return null;
+}
+
+function downgradeAiVerdictOneLevel(ai: "Commit" | "Best Case" | "Pipeline"): "Best Case" | "Pipeline" {
+  if (ai === "Commit") return "Best Case";
+  if (ai === "Best Case") return "Pipeline";
   return "Pipeline";
 }
 
@@ -215,6 +232,8 @@ export async function GET(req: Request) {
       rep_public_id: string | null;
       rep_name: string | null;
       partner_name: string | null;
+      ai_verdict: string | null;
+      ai_forecast: string | null;
     }>(
       `
       SELECT
@@ -224,6 +243,8 @@ export async function GET(req: Request) {
         o.close_date::text,
         o.forecast_stage,
         o.sales_stage,
+        o.ai_verdict,
+        o.ai_forecast,
         o.amount,
         o.health_score,
         o.pain_score, o.metrics_score, o.champion_score,
@@ -265,6 +286,33 @@ export async function GET(req: Request) {
       .catch(() => []);
 
     const bucket = stageBucketFromStages(row.forecast_stage, row.sales_stage, orgStageMappings);
+    const computedAiForecast = computeAiForecastFromHealthScore({
+      healthScore: row.health_score,
+      forecastStage: row.forecast_stage,
+      salesStage: row.sales_stage,
+    });
+    const applicable = isCommitAdmissionApplicable(row, computedAiForecast, orgStageMappings);
+    const admission = computeCommitAdmission(row, applicable);
+    const highConfCount = [row.paper_confidence, row.process_confidence, row.timing_confidence, row.budget_confidence].filter(
+      (v) => String(v || "").trim().toLowerCase() === "high"
+    ).length;
+    const persistedAiVerdict = normalizeOpenStageLabel(row.ai_verdict) ?? normalizeOpenStageLabel(row.ai_forecast);
+
+    let aiVerdictStage =
+      persistedAiVerdict ??
+      toOpenStage(computedAiForecast) ??
+      normalizeOpenStageLabel(row.forecast_stage) ??
+      null;
+
+    let verdictNote: string | null = null;
+    if (applicable && aiVerdictStage) {
+      if (admission.status === "not_admitted") {
+        aiVerdictStage = downgradeAiVerdictOneLevel(aiVerdictStage);
+        verdictNote = admission.reasons[0] || "Commit not supported";
+      } else if (admission.status === "needs_review") {
+        verdictNote = "Low-confidence evidence";
+      }
+    }
 
     const riskFlags: Array<{ key: RiskCategoryKey; label: string; tip: string | null }> = [];
     const push = (key: RiskCategoryKey, displayName: string, score: number | null, tip: string | null) => {
@@ -304,7 +352,7 @@ export async function GET(req: Request) {
         bucket,
         label: bucketLabel(bucket),
       },
-      ai_verdict_stage: bucketLabel(bucket),
+      ai_verdict_stage: aiVerdictStage,
       amount: Number(row.amount || 0) || 0,
       health: {
         health_score: row.health_score ?? null,
@@ -337,6 +385,10 @@ export async function GET(req: Request) {
       },
       risk_flags: riskFlags,
       coaching_insights: uniqueNonEmpty(riskFlags.map((r) => r.tip)),
+      commit_admission_status: applicable ? admission.status : undefined,
+      commit_admission_reasons: applicable ? admission.reasons : undefined,
+      verdict_note: verdictNote,
+      _commit_high_conf_count: highConfCount,
       partner_name: row.partner_name ?? null,
     };
 
