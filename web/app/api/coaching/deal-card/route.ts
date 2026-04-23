@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { computeCommitAdmission, isCommitAdmissionApplicable } from "../../../../lib/commitAdmission";
+import { computeConfidence } from "../../../../lib/confidence";
 import { isAdmin, isChannelRole, isSalesLeader } from "../../../../lib/roleHelpers";
 import { pool } from "../../../../lib/pool";
 
@@ -169,6 +170,8 @@ type DealCoachingCardDeal = {
   verdict_note?: string | null;
   _commit_high_conf_count?: number;
   partner_name?: string | null;
+  confidence_band?: "high" | "medium" | "low" | null;
+  confidence_summary?: string | null;
 };
 
 export async function GET(req: Request) {
@@ -229,6 +232,8 @@ export async function GET(req: Request) {
       process_confidence: string | null;
       timing_confidence: string | null;
       budget_confidence: string | null;
+      audit_details: any | null;
+      updated_at: string | null;
       rep_public_id: string | null;
       rep_name: string | null;
       partner_name: string | null;
@@ -263,6 +268,8 @@ export async function GET(req: Request) {
         o.risk_summary, o.next_steps,
         o.paper_confidence, o.process_confidence,
         o.timing_confidence, o.budget_confidence,
+        o.audit_details,
+        o.updated_at,
         r.public_id::text AS rep_public_id,
         COALESCE(
           NULLIF(btrim(r.display_name), ''),
@@ -296,11 +303,11 @@ export async function GET(req: Request) {
     const highConfCount = [row.paper_confidence, row.process_confidence, row.timing_confidence, row.budget_confidence].filter(
       (v) => String(v || "").trim().toLowerCase() === "high"
     ).length;
-    const persistedAiVerdict = normalizeOpenStageLabel(row.ai_verdict) ?? normalizeOpenStageLabel(row.ai_forecast);
 
     let aiVerdictStage =
-      persistedAiVerdict ??
       toOpenStage(computedAiForecast) ??
+      normalizeOpenStageLabel(row.ai_verdict) ??
+      normalizeOpenStageLabel(row.ai_forecast) ??
       normalizeOpenStageLabel(row.forecast_stage) ??
       null;
 
@@ -313,6 +320,21 @@ export async function GET(req: Request) {
         verdictNote = "Low-confidence evidence";
       }
     }
+
+    const persistedScoring = row.audit_details?.scoring ?? null;
+    const computedScoring = computeConfidence({
+      opportunity: row,
+      source: "system",
+      now: new Date(),
+    });
+    const confidenceBand =
+      persistedScoring && typeof persistedScoring.confidence_band === "string"
+        ? (String(persistedScoring.confidence_band).trim().toLowerCase() as "high" | "medium" | "low")
+        : computedScoring.confidence_band;
+    const confidenceSummary =
+      persistedScoring && typeof persistedScoring.confidence_summary === "string"
+        ? String(persistedScoring.confidence_summary).trim() || computedScoring.confidence_summary
+        : computedScoring.confidence_summary;
 
     const riskFlags: Array<{ key: RiskCategoryKey; label: string; tip: string | null }> = [];
     const push = (key: RiskCategoryKey, displayName: string, score: number | null, tip: string | null) => {
@@ -390,6 +412,8 @@ export async function GET(req: Request) {
       verdict_note: verdictNote,
       _commit_high_conf_count: highConfCount,
       partner_name: row.partner_name ?? null,
+      confidence_band: confidenceBand,
+      confidence_summary: confidenceSummary,
     };
 
     return NextResponse.json({ ok: true, deal });

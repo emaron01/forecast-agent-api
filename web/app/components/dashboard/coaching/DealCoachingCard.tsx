@@ -54,6 +54,8 @@ export type DealCoachingCardDeal = {
   _commit_high_conf_count?: number;
   /** CRM channel / partner field (opportunities.partner_name) */
   partner_name?: string | null;
+  confidence_band?: "high" | "medium" | "low" | null;
+  confidence_summary?: string | null;
 };
 
 function fmtDateMmddyyyy(raw: string | null | undefined) {
@@ -141,6 +143,32 @@ function stageDeltaBadgeClass(crm: string, ai: string) {
   return `${base} border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#B8860B]`;
 }
 
+function confidenceBadgeMeta(band: "high" | "medium" | "low" | null | undefined) {
+  const base = "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold";
+  if (band === "high") {
+    return {
+      label: "High Confidence",
+      className: `${base} border-[#2ECC71]/60 bg-[#2ECC71]/10 text-[#2ECC71]`,
+    };
+  }
+  if (band === "medium") {
+    return {
+      label: "Med Confidence",
+      className: `${base} border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#B8860B]`,
+    };
+  }
+  if (band === "low") {
+    return {
+      label: "Low Confidence",
+      className: `${base} border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]`,
+    };
+  }
+  return {
+    label: "Confidence —",
+    className: `${base} border-[color:var(--sf-border)] text-[color:var(--sf-text-secondary)]`,
+  };
+}
+
 export type DealCoachingCardProps = {
   deal: DealCoachingCardDeal;
   onRequestReview?: (dealId: string) => void;
@@ -162,6 +190,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
   const aiStageLabel = String(props.deal.ai_verdict_stage || "").trim() || "—";
   const repLabel = String(props.deal.rep?.rep_name || "").trim() || "—";
   const partnerLabel = String(props.deal.partner_name || "").trim();
+  const confidenceMeta = confidenceBadgeMeta(props.deal.confidence_band ?? null);
   const channelDash = !!props.channelDashboard;
   const requestReviewBtnClass =
     "inline-flex items-center justify-center rounded-md border border-[color:var(--sf-accent-primary)] px-4 text-xs font-semibold text-[color:var(--sf-accent-primary)] hover:bg-[color:var(--sf-accent-primary)] hover:text-white transition-colors";
@@ -172,20 +201,28 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
         <div>
           <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-base text-[color:var(--sf-text-secondary)]">
+            <span>Sales Rep {repLabel}</span>
+            <span>· Close {fmtDateMmddyyyy(props.deal.close_date)}</span>
             <span>
-              Sales Rep {repLabel} · Close {fmtDateMmddyyyy(props.deal.close_date)} · CRM Forecast Stage{" "}
-              <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span>
-              {" · AI Verdict Stage "}
-              <span className={stageDeltaBadgeClass(crmStageLabel, aiStageLabel)}>{aiStageLabel}</span>
-              {partnerLabel ? (
-                <>
-                  {" "}
-                  · Partner Name{" "}
-                  <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
-                </>
-              ) : null}
-              {props.deal.health.suppression ? " · Suppressed Best Case (low score)" : ""}
+              · CRM Forecast Stage <span className="font-semibold text-[color:var(--sf-text-primary)]">{crmStageLabel}</span>
             </span>
+            <span className="inline-flex items-center gap-1">
+              <span>· AI Verdict Stage</span>
+              <span className={stageDeltaBadgeClass(crmStageLabel, aiStageLabel)}>{aiStageLabel}</span>
+            </span>
+            <span
+              className="inline-flex items-center gap-1"
+              title={props.deal.confidence_summary || undefined}
+            >
+              <span>· Confidence</span>
+              <span className={confidenceMeta.className}>{confidenceMeta.label}</span>
+            </span>
+            {partnerLabel ? (
+              <span>
+                · Partner Name <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
+              </span>
+            ) : null}
+            {props.deal.health.suppression ? <span>· Suppressed Best Case (low score)</span> : null}
             {(props.deal.crm_stage.bucket === "commit" || props.deal.ai_verdict_stage === "Commit") && props.deal.commit_admission_status === "not_admitted" ? (
               <span
                 className="inline-flex items-center rounded-full border border-[#E74C3C]/60 bg-[#E74C3C]/15 px-2 py-0.5 text-xs font-semibold text-[#E74C3C]"
