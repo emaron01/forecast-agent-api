@@ -1,7 +1,7 @@
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
 import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
-import { channelDealScopeWhereStrict } from "./channelDealScope";
+import { channelDealScopeWhereMerged, channelDealScopeWhereStrict } from "./channelDealScope";
 
 type MotionStatsRow = {
   motion: PartnerDealMotion;
@@ -76,12 +76,17 @@ export async function loadChannelPartnersExecutive(args: {
   prevQuotaPeriodId?: string | null;
   territoryRepIds: number[];
   partnerNames: string[];
+  scopeMode?: "strict" | "merged";
 }) {
   const orgId = Number(args.orgId);
   const quotaPeriodId = String(args.quotaPeriodId || "").trim();
   const prevQpId = String(args.prevQuotaPeriodId || "").trim();
   const territoryRepIds = (args.territoryRepIds || []).filter((id) => Number.isFinite(id) && id > 0);
   const partnerNames = normalizePartnerNames(args.partnerNames || []);
+  const channelScopeWhere =
+    args.scopeMode === "merged"
+      ? channelDealScopeWhereMerged(3, 4)
+      : channelDealScopeWhereStrict(3, 4);
   if (!quotaPeriodId) return null;
 
   const motionStats = await pool
@@ -116,7 +121,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
-          ${channelDealScopeWhereStrict(3, 4)}
+          ${channelScopeWhere}
       ),
       direct_deals AS (
         SELECT
@@ -229,7 +234,7 @@ export async function loadChannelPartnersExecutive(args: {
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
-            ${channelDealScopeWhereStrict(3, 4)}
+            ${channelScopeWhere}
         ) base
         WHERE crm_bucket IN ('won', 'lost')
       )
@@ -283,7 +288,7 @@ export async function loadChannelPartnersExecutive(args: {
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
           AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
-          ${channelDealScopeWhereStrict(3, 4)}
+          ${channelScopeWhere}
       ),
       direct_deals AS (
         SELECT
@@ -411,6 +416,7 @@ export async function loadChannelPartnersExecutive(args: {
       quotaPeriodId: prevQpId,
       territoryRepIds,
       partnerNames,
+      scopeMode: args.scopeMode,
     }).catch(() => null);
     if (!prev) return null;
     const d0 = prev.direct;

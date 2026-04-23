@@ -1564,60 +1564,59 @@ export default async function ExecutiveDashboardPage({
     topDealsLost = [];
   }
 
+  const channelTeamPayload = await channelTeamPayloadPromise;
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
-  const EXECUTIVE_CHANNEL_LEADER_LEVELS = new Set<number>([HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_MANAGER]);
-  const executiveVisibleChannelLeaderUserIds = Array.from(
+  const executiveChannelScopeRepRows = Array.from(
+    new Map(
+      [
+        ...(channelTeamPayload?.channelDashboardSummary?.repDirectory ?? []),
+        ...repDirectory,
+      ]
+        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP && r.user_id != null)
+        .map((r) => [Number(r.id), r] as const)
+    ).values()
+  );
+  let executiveChannelScopeUserIds = Array.from(
     new Set(
-      repDirectory
-        .filter((r) => EXECUTIVE_CHANNEL_LEADER_LEVELS.has(Number(r.hierarchy_level)))
+      executiveChannelScopeRepRows
         .map((r) => Number(r.user_id))
         .filter((id) => Number.isFinite(id) && id > 0)
     )
   );
-  const executiveVisibleChannelUserIds =
-    showChannelContribution && executiveVisibleChannelLeaderUserIds.length > 0
-      ? await pool
-          .query<{ user_id: number }>(
-            `
-            WITH RECURSIVE channel_tree AS (
-              SELECT
-                u.id AS user_id,
-                COALESCE(u.hierarchy_level, 99) AS hierarchy_level
-              FROM users u
-              WHERE u.org_id = $1::bigint
-                AND u.id = ANY($2::bigint[])
-                AND (u.active IS TRUE OR u.active IS NULL)
-
-              UNION ALL
-
-              SELECT
-                c.id AS user_id,
-                COALESCE(c.hierarchy_level, 99) AS hierarchy_level
-              FROM users c
-              JOIN channel_tree t
-                ON c.manager_user_id = t.user_id
-              WHERE c.org_id = $1::bigint
-                AND COALESCE(c.hierarchy_level, 99) IN (6, 7, 8)
-                AND (c.active IS TRUE OR c.active IS NULL)
-            )
-            SELECT DISTINCT user_id
-            FROM channel_tree
-            WHERE hierarchy_level IN (6, 7, 8)
-            ORDER BY user_id ASC
-            `,
-            [ctx.user.org_id, executiveVisibleChannelLeaderUserIds]
-          )
-          .then((res) =>
-            (res.rows || [])
-              .map((row) => Number(row.user_id))
-              .filter((id) => Number.isFinite(id) && id > 0)
-          )
-          .catch(() => [])
-      : [];
+  if (
+    showChannelContribution &&
+    executiveChannelScopeUserIds.length === 0 &&
+    viewerHlForChannelTeam >= HIERARCHY.ADMIN &&
+    viewerHlForChannelTeam <= HIERARCHY.MANAGER
+  ) {
+    executiveChannelScopeUserIds = await pool
+      .query<{ user_id: number }>(
+        `
+        SELECT DISTINCT r.user_id
+        FROM reps r
+        INNER JOIN users u
+          ON u.id = r.user_id
+         AND u.org_id = $1::bigint
+        WHERE r.organization_id = $1::bigint
+          AND (r.active IS TRUE OR r.active IS NULL)
+          AND (u.active IS TRUE OR u.active IS NULL)
+          AND u.hierarchy_level = $2::int
+          AND r.user_id IS NOT NULL
+        ORDER BY r.user_id ASC
+        `,
+        [ctx.user.org_id, HIERARCHY.CHANNEL_REP]
+      )
+      .then((res) =>
+        (res.rows || [])
+          .map((row) => Number(row.user_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      )
+      .catch(() => []);
+  }
   const executiveChannelTerritoryScopes =
-    showChannelContribution && executiveVisibleChannelUserIds.length > 0
+    showChannelContribution && executiveChannelScopeUserIds.length > 0
       ? await Promise.all(
-          executiveVisibleChannelUserIds.map((channelUserId) =>
+          executiveChannelScopeUserIds.map((channelUserId) =>
             getChannelTerritoryRepIds({
               orgId: ctx.user.org_id,
               channelUserId,
@@ -1663,6 +1662,7 @@ export default async function ExecutiveDashboardPage({
           prevQuotaPeriodId: prevPeriodId,
           territoryRepIds: executiveChannelTerritoryRepIds,
           partnerNames: executiveChannelPartnerNames,
+          scopeMode: "merged",
         }).catch(() => null)
       : null;
 
@@ -1919,8 +1919,6 @@ export default async function ExecutiveDashboardPage({
     allowed: EXEC_ALLOWED_TABS,
     fallback: "pipeline",
   });
-
-  const channelTeamPayload = await channelTeamPayloadPromise;
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
