@@ -1,6 +1,6 @@
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
-import { partnerMotionCaseSql, type PartnerDealMotion } from "./partnerMotion";
+import { partnerMotionCaseSql, partnerMotionPredicatesSql, type PartnerDealMotion } from "./partnerMotion";
 import { channelDealScopeWhereMerged } from "./channelDealScope";
 
 type MotionStatsRow = {
@@ -84,7 +84,119 @@ export async function loadExecutiveChannelTabPartners(args: {
   );
   if (!quotaPeriodId || (territoryRepIds.length === 0 && partnerNames.length === 0)) return null;
 
-  const baseDealsSql = `
+  const motionStats = await pool
+    .query<MotionStatsRow>(
+      `
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+        FROM quota_periods
+        WHERE org_id = $1::bigint
+          AND id = $2::bigint
+        LIMIT 1
+      ),
+      channel_deals AS (
+        SELECT
+          (${partnerMotionCaseSql("o")})::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.health_score::float8 AS health_score,
+          o.create_date::timestamptz AS create_date,
+          o.close_date::date AS close_date,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1::bigint
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          ${channelDealScopeWhereMerged(3, 4)}
+      ),
+      direct_deals AS (
+        SELECT
+          'direct'::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          o.health_score::float8 AS health_score,
+          o.create_date::timestamptz AS create_date,
+          o.close_date::date AS close_date,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1::bigint
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND o.rep_id = ANY($3::bigint[])
+          AND ${partnerMotionPredicatesSql.isDirect}
+      ),
+      base AS (
+        SELECT
+          motion,
+          amount,
+          health_score,
+          crm_bucket,
+          CASE
+            WHEN create_date IS NOT NULL AND close_date IS NOT NULL
+              THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int
+            ELSE NULL
+          END AS age_days
+        FROM channel_deals
+        WHERE crm_bucket IN ('won', 'lost')
+          AND motion IN ('partner_influenced', 'partner_sourced')
+        UNION ALL
+        SELECT
+          motion,
+          amount,
+          health_score,
+          crm_bucket,
+          CASE
+            WHEN create_date IS NOT NULL AND close_date IS NOT NULL
+              THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int
+            ELSE NULL
+          END AS age_days
+        FROM direct_deals
+        WHERE crm_bucket IN ('won', 'lost')
+      )
+      SELECT
+        motion,
+        COUNT(*)::int AS opps,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_opps,
+        COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_opps,
+        CASE
+          WHEN COUNT(*) > 0
+            THEN COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::float8 / COUNT(*)::float8
+          ELSE NULL
+        END AS win_rate,
+        AVG(NULLIF(amount, 0))::float8 AS aov,
+        AVG(age_days)::float8 AS avg_days,
+        AVG(CASE WHEN crm_bucket = 'won' THEN age_days ELSE NULL END)::float8 AS avg_won_days,
+        AVG(NULLIF(health_score, 0))::float8 AS avg_health_score,
+        SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END)::float8 AS won_amount,
+        SUM(CASE WHEN crm_bucket = 'lost' THEN amount ELSE 0 END)::float8 AS lost_amount
+      FROM base
+      GROUP BY motion
+      ORDER BY motion ASC
+      `,
+      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
+    )
+    .then((res) => res.rows || [])
+    .catch(() => []);
+
+  const partnerDealsSql = `
     WITH qp AS (
       SELECT period_start::date AS period_start, period_end::date AS period_end
       FROM quota_periods
@@ -119,53 +231,10 @@ export async function loadExecutiveChannelTabPartners(args: {
     )
   `;
 
-  const motionStats = await pool
-    .query<MotionStatsRow>(
-      `
-      ${baseDealsSql}
-      SELECT
-        motion,
-        COUNT(*) FILTER (WHERE crm_bucket IN ('won', 'lost'))::int AS opps,
-        COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_opps,
-        COALESCE(SUM(CASE WHEN crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_opps,
-        CASE
-          WHEN COUNT(*) FILTER (WHERE crm_bucket IN ('won', 'lost')) > 0
-            THEN COALESCE(SUM(CASE WHEN crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::float8
-              / COUNT(*) FILTER (WHERE crm_bucket IN ('won', 'lost'))::float8
-          ELSE NULL
-        END AS win_rate,
-        AVG(NULLIF(amount, 0)) FILTER (WHERE crm_bucket IN ('won', 'lost'))::float8 AS aov,
-        AVG(
-          CASE
-            WHEN crm_bucket IN ('won', 'lost') AND create_date IS NOT NULL AND close_date IS NOT NULL
-              THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int
-            ELSE NULL
-          END
-        )::float8 AS avg_days,
-        AVG(
-          CASE
-            WHEN crm_bucket = 'won' AND create_date IS NOT NULL AND close_date IS NOT NULL
-              THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0))::int
-            ELSE NULL
-          END
-        )::float8 AS avg_won_days,
-        AVG(NULLIF(health_score, 0)) FILTER (WHERE crm_bucket IN ('won', 'lost'))::float8 AS avg_health_score,
-        SUM(CASE WHEN crm_bucket = 'won' THEN amount ELSE 0 END)::float8 AS won_amount,
-        SUM(CASE WHEN crm_bucket = 'lost' THEN amount ELSE 0 END)::float8 AS lost_amount
-      FROM deals
-      WHERE crm_bucket IN ('won', 'lost')
-      GROUP BY motion
-      ORDER BY motion ASC
-      `,
-      [orgId, quotaPeriodId, territoryRepIds, partnerNames]
-    )
-    .then((res) => res.rows || [])
-    .catch(() => []);
-
   const topPartners = await pool
     .query<PartnerRollupRow>(
       `
-      ${baseDealsSql}
+      ${partnerDealsSql}
       SELECT
         partner_name,
         COUNT(*)::int AS opps,
@@ -202,13 +271,71 @@ export async function loadExecutiveChannelTabPartners(args: {
   const openByMotion = await pool
     .query<OpenPipelineMotionRow>(
       `
-      ${baseDealsSql}
+      WITH qp AS (
+        SELECT period_start::date AS period_start, period_end::date AS period_end
+        FROM quota_periods
+        WHERE org_id = $1::bigint
+          AND id = $2::bigint
+        LIMIT 1
+      ),
+      channel_deals AS (
+        SELECT
+          (${partnerMotionCaseSql("o")})::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1::bigint
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
+          ${channelDealScopeWhereMerged(3, 4)}
+      ),
+      direct_deals AS (
+        SELECT
+          'direct'::text AS motion,
+          COALESCE(o.amount, 0)::float8 AS amount,
+          (${crmBucketCaseSql("o")}) AS crm_bucket
+        FROM opportunities o
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+        JOIN qp ON TRUE
+        WHERE o.org_id = $1::bigint
+          AND o.close_date IS NOT NULL
+          AND o.close_date >= qp.period_start
+          AND o.close_date <= qp.period_end
+          AND (${crmBucketCaseSql("o")}) NOT IN ('won', 'lost')
+          AND o.rep_id = ANY($3::bigint[])
+          AND ${partnerMotionPredicatesSql.isDirect}
+      ),
+      base AS (
+        SELECT motion, amount
+        FROM channel_deals
+        WHERE motion IN ('partner_influenced', 'partner_sourced')
+        UNION ALL
+        SELECT motion, amount
+        FROM direct_deals
+      )
       SELECT
         motion,
         COUNT(*)::int AS open_opps,
         SUM(amount)::float8 AS open_amount
-      FROM deals
-      WHERE crm_bucket NOT IN ('won', 'lost')
+      FROM base
       GROUP BY motion
       ORDER BY motion ASC
       `,
@@ -220,7 +347,7 @@ export async function loadExecutiveChannelTabPartners(args: {
   const openByPartner = await pool
     .query<OpenPipelinePartnerRow>(
       `
-      ${baseDealsSql}
+      ${partnerDealsSql}
       SELECT
         partner_name,
         COUNT(*)::int AS open_opps,

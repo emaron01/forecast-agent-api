@@ -1509,6 +1509,11 @@ export default async function ExecutiveDashboardPage({
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
+  const visibleRepIdSet = new Set(
+    visibleRepIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+  );
   const executiveChannelScopeUserIds =
     showChannelContribution
       ? await pool
@@ -1535,7 +1540,7 @@ export default async function ExecutiveDashboardPage({
           )
           .catch(() => [])
       : [];
-  const executiveChannelTerritoryScopes =
+  const executiveChannelTerritoryScopesRaw =
     showChannelContribution && executiveChannelScopeUserIds.length > 0
       ? await Promise.all(
           executiveChannelScopeUserIds.map((channelUserId) =>
@@ -1546,6 +1551,12 @@ export default async function ExecutiveDashboardPage({
           )
         )
       : [];
+  const executiveChannelTerritoryScopes = executiveChannelTerritoryScopesRaw
+    .map((scope) => ({
+      repIds: (scope.repIds || []).filter((id) => visibleRepIdSet.has(Number(id))),
+      partnerNames: (scope.partnerNames || []).map((name) => String(name || "").trim().toLowerCase()).filter(Boolean),
+    }))
+    .filter((scope) => scope.repIds.length > 0);
   const executiveChannelTerritoryRepIds = Array.from(
     new Set(
       executiveChannelTerritoryScopes
