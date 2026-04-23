@@ -14,6 +14,7 @@ import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
 import { outcomeFromOpportunityRow } from "../lib/opportunityOutcome";
 import { markHubSpotDealDeleted, runHubSpotIngest, syncHubSpotDealMetadataOnly } from "../lib/hubspotIngest";
+import { getIngestQueue } from "../lib/ingest-queue";
 
 const QUEUE_NAME = "opportunity-ingest";
 const BATCH_SIZE = 100;
@@ -47,6 +48,199 @@ function inScope(opp: { sales_stage?: string | null; forecast_stage?: string | n
 function getConnection() {
   const url = process.env.REDIS_URL || "redis://localhost:6379";
   return { connection: { url } };
+}
+
+function serializeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function logInfo(event: string, details: Record<string, unknown> = {}): void {
+  console.info(
+    JSON.stringify({
+      worker: "opportunity-ingest",
+      level: "info",
+      event,
+      ...details,
+    })
+  );
+}
+
+function logError(event: string, details: Record<string, unknown> = {}): void {
+  console.error(
+    JSON.stringify({
+      worker: "opportunity-ingest",
+      level: "error",
+      event,
+      ...details,
+    })
+  );
+}
+
+async function enqueueScheduledHubSpotSyncs(): Promise<{ ok: true; orgs_queued: number; orgs_skipped: number }> {
+  const queue = getIngestQueue();
+  if (!queue) {
+    logError("hubspot_scheduled_sync_queue_unavailable");
+    return { ok: true, orgs_queued: 0, orgs_skipped: 0 };
+  }
+
+  const { rows } = await pool.query<{ org_id: string }>(
+    `
+    SELECT org_id::text AS org_id
+    FROM hubspot_connections
+    WHERE access_token_enc IS NOT NULL
+      AND token_expires_at > now() - interval '7 days'
+    `
+  );
+
+  let orgsQueued = 0;
+  let orgsSkipped = 0;
+
+  for (const row of rows) {
+    const orgId = Number(row.org_id || 0);
+    if (!Number.isFinite(orgId) || orgId <= 0) {
+      orgsSkipped += 1;
+      logInfo("hubspot_scheduled_sync_skipped", {
+        orgId: row.org_id,
+        reason: "invalid_org_id",
+      });
+      continue;
+    }
+
+    const inFlight = await pool.query(
+      `
+      SELECT 1
+      FROM hubspot_sync_log
+      WHERE org_id = $1
+        AND status IN ('pending', 'running')
+        AND started_at > now() - interval '30 minutes'
+      LIMIT 1
+      `,
+      [orgId]
+    );
+    if (inFlight.rows.length) {
+      orgsSkipped += 1;
+      logInfo("hubspot_scheduled_sync_skipped", {
+        orgId,
+        reason: "sync_in_progress",
+      });
+      continue;
+    }
+
+    let syncLogId = "";
+    try {
+      const insertResult = await pool.query<{ id: string }>(
+        `
+        INSERT INTO hubspot_sync_log (org_id, sync_type, status)
+        VALUES ($1, 'scheduled', 'pending')
+        RETURNING id::text AS id
+        `,
+        [orgId]
+      );
+      syncLogId = String(insertResult.rows[0]?.id || "").trim();
+      if (!syncLogId) {
+        orgsSkipped += 1;
+        logError("hubspot_scheduled_sync_log_missing", { orgId });
+        continue;
+      }
+
+      await queue.add(
+        "hubspot-initial-sync",
+        { orgId, syncLogId, syncType: "scheduled" },
+        {
+          jobId: `hubspot-scheduled-sync_${orgId}_${Date.now()}`,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+
+      orgsQueued += 1;
+      logInfo("hubspot_scheduled_sync_queued", {
+        orgId,
+        syncLogId,
+      });
+    } catch (error) {
+      if (syncLogId) {
+        await pool.query(
+          `
+          UPDATE hubspot_sync_log
+          SET status = 'failed',
+              error_text = $2,
+              completed_at = now()
+          WHERE id = $1::uuid
+          `,
+          [syncLogId, serializeError(error)]
+        );
+      }
+      orgsSkipped += 1;
+      logError("hubspot_scheduled_sync_enqueue_failed", {
+        orgId,
+        syncLogId: syncLogId || null,
+        error: serializeError(error),
+      });
+    }
+  }
+
+  return { ok: true, orgs_queued: orgsQueued, orgs_skipped: orgsSkipped };
+}
+
+async function cleanupExpiredEmbedSessions(): Promise<{ ok: true; deleted: number }> {
+  const result = await pool.query(
+    `
+    DELETE FROM user_sessions
+    WHERE expires_at < now()
+      AND user_id IN (
+        SELECT user_id FROM hubspot_embed_users
+      )
+    `
+  );
+  const deleted = result.rowCount ?? 0;
+  logInfo("embed_session_cleanup_completed", { deleted });
+  return { ok: true, deleted };
+}
+
+async function registerRepeatableJobs(): Promise<void> {
+  const queue = getIngestQueue();
+  if (!queue) {
+    logError("repeatable_jobs_queue_unavailable");
+    return;
+  }
+
+  try {
+    await queue.add(
+      "hubspot-scheduled-sync-all",
+      {},
+      {
+        repeat: {
+          pattern: process.env.HUBSPOT_SYNC_CRON || "0 */6 * * *",
+        },
+        jobId: "hubspot-scheduled-sync-all",
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+
+    await queue.add(
+      "embed-session-cleanup",
+      {},
+      {
+        repeat: { pattern: "0 3 * * *" },
+        jobId: "embed-session-cleanup",
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+
+    logInfo("repeatable_jobs_registered", {
+      hubspotSyncCron: process.env.HUBSPOT_SYNC_CRON || "0 */6 * * *",
+      embedSessionCleanupCron: "0 3 * * *",
+    });
+  } catch (error) {
+    logError("repeatable_jobs_registration_failed", {
+      error: serializeError(error),
+    });
+  }
 }
 
 async function processSingleIngest(job: { data: any; updateProgress: (p: object) => Promise<void> }) {
@@ -111,20 +305,13 @@ async function processSingleIngest(job: { data: any; updateProgress: (p: object)
       failed: applyResult.ok ? 0 : 1,
     };
   } catch (e: any) {
-    console.error(
-      "[ingest] single-ingest failed",
-      JSON.stringify(
-        {
-          orgId,
-          opportunityId,
-          sourceType: sourceType ?? "manual",
-          sourceRef: sourceRef ?? "single",
-          error: e?.message || String(e),
-        },
-        null,
-        2
-      )
-    );
+    logError("single_ingest_failed", {
+      orgId,
+      opportunityId,
+      sourceType: sourceType ?? "manual",
+      sourceRef: sourceRef ?? "single",
+      error: e?.message || String(e),
+    });
     return { processed: 1, ok: 0, skipped_out_of_scope: 0, skipped_baseline_exists: 0, failed: 1 };
   }
 }
@@ -152,6 +339,14 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     return { ok: true };
   }
 
+  if (job.name === "hubspot-scheduled-sync-all") {
+    return enqueueScheduledHubSpotSyncs();
+  }
+
+  if (job.name === "embed-session-cleanup") {
+    return cleanupExpiredEmbedSessions();
+  }
+
   if (job.name === "hubspot-deal-delete") {
     const { orgId, dealId } = job.data || {};
     if (!orgId || !dealId) throw new Error("Invalid hubspot-deal-delete job");
@@ -169,14 +364,11 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
   let skippedTotal = 0;
   let notReadyTotal = 0;
 
-  console.log(
-    JSON.stringify({
-      event: "excel_comments_job_start",
-      job_id: job.id,
-      attempt: (job as any).attemptsMade + 1,
-      rows_total: rows.length,
-    })
-  );
+  logInfo("excel_comments_job_start", {
+    job_id: job.id,
+    attempt: (job as any).attemptsMade + 1,
+    rows_total: rows.length,
+  });
 
   const total = rows.length;
   let processed = 0;
@@ -213,31 +405,25 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         const computedOutcome = outcomeFromOpportunityRow(opp);
         const inScopeResult = inScope(opp);
         if (process.env.DEBUG_INGEST === "true") {
-          console.log(
-            JSON.stringify({
-              event: "ingest_row_debug",
-              crmOppId,
-              opportunity_id: opp.id,
-              outcome: computedOutcome,
-              inScope: inScopeResult,
-            })
-          );
+          logInfo("ingest_row_debug", {
+            crmOppId,
+            opportunity_id: opp.id,
+            outcome: computedOutcome,
+            inScope: inScopeResult,
+          });
         }
         if (!inScopeResult) {
           if (process.env.DEBUG_INGEST === "true" && computedOutcome !== "Open") {
             const rawClose = opp.close_date;
             const skipReason = !rawClose ? "closed_missing_close_date" : "closed_out_of_scope";
-            console.log(
-              JSON.stringify({
-                event: "comment_row_skipped",
-                opportunity_id: opp.id,
-                forecast_stage: opp.forecast_stage ?? null,
-                sales_stage: opp.sales_stage ?? null,
-                close_date: rawClose ?? null,
-                computed_outcome: computedOutcome,
-                skip_reason: skipReason,
-              })
-            );
+            logInfo("comment_row_skipped", {
+              opportunity_id: opp.id,
+              forecast_stage: opp.forecast_stage ?? null,
+              sales_stage: opp.sales_stage ?? null,
+              close_date: rawClose ?? null,
+              computed_outcome: computedOutcome,
+              skip_reason: skipReason,
+            });
           }
           skippedTotal++;
           skippedOutOfScope++;
@@ -247,14 +433,11 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
 
         if (opp.baseline_health_score_ts != null) {
           if (process.env.DEBUG_INGEST === "true") {
-            console.log(
-              JSON.stringify({
-                event: "ingest_row_skipped",
-                reason: "baseline_exists",
-                opportunity_id: opp.id,
-                crmOppId,
-              })
-            );
+            logInfo("ingest_row_skipped", {
+              reason: "baseline_exists",
+              opportunity_id: opp.id,
+              crmOppId,
+            });
           }
           skippedTotal++;
           skippedBaselineExists++;
@@ -294,26 +477,20 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
           rawNotes: rawText,
         });
         if (process.env.DEBUG_INGEST === "true") {
-          console.log(
-            JSON.stringify({
-              event: "ingest_apply_result",
-              opportunity_id: opp.id,
-              crmOppId,
-              apply_ok: applyResult.ok,
-              apply_error: applyResult?.error ?? null,
-            })
-          );
+          logInfo("ingest_apply_result", {
+            opportunity_id: opp.id,
+            crmOppId,
+            apply_ok: applyResult.ok,
+            apply_error: applyResult?.error ?? null,
+          });
         }
         if (applyResult.ok) {
           if (process.env.DEBUG_INGEST === "true") {
-            console.log(
-              JSON.stringify({
-                event: "comment_row_processed",
-                opportunity_id: opp.id,
-                computed_outcome: computedOutcome,
-                close_date: opp.close_date ?? null,
-              })
-            );
+            logInfo("comment_row_processed", {
+              opportunity_id: opp.id,
+              computed_outcome: computedOutcome,
+              close_date: opp.close_date ?? null,
+            });
           }
           processedSuccess++;
           okCount++;
@@ -322,27 +499,21 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
         const msg = String(e?.message || e);
         if (msg.startsWith("OPPORTUNITY_NOT_READY")) {
           notReadyTotal++;
-          console.log(
-            "[ingest] comments waiting for opportunity — skipping row, will not retry chunk",
-            JSON.stringify({ orgId, fileName, crmOppId })
-          );
+          logInfo("comments_waiting_for_opportunity", {
+            orgId,
+            fileName,
+            crmOppId,
+          });
           skippedTotal++;
           processed++;
           continue;  // skip this row, keep processing the rest of the chunk
         }
-        console.error(
-          "[ingest] excel-comments row failed",
-          JSON.stringify(
-            {
-              orgId,
-              fileName,
-              crmOppId,
-              error: msg,
-            },
-            null,
-            2
-          )
-        );
+        logError("excel_comments_row_failed", {
+          orgId,
+          fileName,
+          crmOppId,
+          error: msg,
+        });
         failedCount++;
       }
       processed++;
@@ -359,19 +530,16 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     });
   }
 
-  console.log(
-    JSON.stringify({
-      event: "excel_comments_job_done",
-      status: "completed",
-      job_id: job.id,
-      attempt: (job as any).attemptsMade + 1,
-      rows_total: rows.length,
-      processed_rows: processedSuccess,
-      skipped_rows: skippedTotal,
-      not_ready_rows: notReadyTotal,
-      duration_ms: Date.now() - t0,
-    })
-  );
+  logInfo("excel_comments_job_done", {
+    status: "completed",
+    job_id: job.id,
+    attempt: (job as any).attemptsMade + 1,
+    rows_total: rows.length,
+    processed_rows: processedSuccess,
+    skipped_rows: skippedTotal,
+    not_ready_rows: notReadyTotal,
+    duration_ms: Date.now() - t0,
+  });
 
   return {
     processed,
@@ -381,20 +549,17 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
     failed: failedCount,
   };
   } catch (err: any) {
-    console.log(
-      JSON.stringify({
-        event: "excel_comments_job_done",
-        status: "failed",
-        job_id: job.id,
-        attempt: (job as any).attemptsMade + 1,
-        rows_total: rows.length,
-        processed_rows: processedSuccess,
-        skipped_rows: skippedTotal,
-        not_ready_rows: notReadyTotal,
-        duration_ms: Date.now() - t0,
-        error: String(err?.message || err),
-      })
-    );
+    logError("excel_comments_job_done", {
+      status: "failed",
+      job_id: job.id,
+      attempt: (job as any).attemptsMade + 1,
+      rows_total: rows.length,
+      processed_rows: processedSuccess,
+      skipped_rows: skippedTotal,
+      not_ready_rows: notReadyTotal,
+      duration_ms: Date.now() - t0,
+      error: String(err?.message || err),
+    });
     throw err;
   }
 }
@@ -414,9 +579,14 @@ const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
 const lockDurationMs = parseInt(process.env.INGEST_JOB_LOCK_DURATION_MS ?? "900000", 10) || 900000;
 const maxStalledCount = parseInt(process.env.INGEST_MAX_STALLED_COUNT ?? "2", 10) || 2;
 
-console.log(
-  `[ingest] Worker starting | queue=${QUEUE_NAME} | redis=${maskRedisHost(redisUrl)} | concurrency=${process.env.WORKER_CONCURRENCY ?? "3"} | batch=${BATCH_SIZE} | lockDuration=${lockDurationMs}ms | maxStalledCount=${maxStalledCount}`
-);
+logInfo("worker_starting", {
+  queue: QUEUE_NAME,
+  redis: maskRedisHost(redisUrl),
+  concurrency: process.env.WORKER_CONCURRENCY ?? "3",
+  batch: BATCH_SIZE,
+  lockDurationMs,
+  maxStalledCount,
+});
 
 const worker = new Worker(
   QUEUE_NAME,
@@ -430,15 +600,35 @@ const worker = new Worker(
 );
 
 worker.on("completed", (job, result) => {
-  console.log(`[ingest] Job ${job.id} completed:`, result);
+  logInfo("job_completed", {
+    jobId: job.id,
+    jobName: job.name,
+    result,
+  });
 });
 
 worker.on("failed", (job, err) => {
-  console.error(`[ingest] Job ${job?.id} failed:`, err?.message || err);
+  logError("job_failed", {
+    jobId: job?.id,
+    jobName: job?.name,
+    error: err?.message || String(err),
+  });
 });
 
 worker.on("error", (err) => {
-  console.error("[ingest] Worker error:", err);
+  logError("worker_error", {
+    error: err?.message || String(err),
+  });
 });
 
-console.log(`[ingest] Worker ready. Queue: ${QUEUE_NAME}`);
+worker
+  .waitUntilReady()
+  .then(async () => {
+    logInfo("worker_ready", { queue: QUEUE_NAME });
+    await registerRepeatableJobs();
+  })
+  .catch((error) => {
+    logError("worker_ready_failed", {
+      error: serializeError(error),
+    });
+  });

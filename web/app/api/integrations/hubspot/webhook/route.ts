@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { pool } from "../../../../../lib/pool";
 import { getIngestQueue, QUEUE_NAME } from "../../../../../lib/ingest-queue";
-import { verifyWebhookSignature } from "../../../../../lib/hubspotClient";
-import { getHubspotScoringCloseDateBounds } from "../../../../../lib/hubspotIngest";
+import {
+  extractDealEvents,
+  extractPortalId,
+  verifyHubSpotWebhookSignature,
+} from "../../../../../lib/hubspotWebhook";
 
 export const runtime = "nodejs";
 
@@ -67,97 +70,133 @@ function requestFullUrl(req: Request): string {
   return `${proto}://${host}${path}${search}`;
 }
 
-export async function POST(req: Request) {
-  const rawBody = await req.text();
-  const clientSecret = String(process.env.HUBSPOT_CLIENT_SECRET || "").trim();
-  const versionRaw = String(
-    req.headers.get("x-hubspot-signature-version") || req.headers.get("X-HubSpot-Signature-Version") || ""
-  ).trim();
-  const versionNorm = versionRaw.toLowerCase();
-  const isV3 = versionNorm === "v3" || versionNorm === "3";
-  const signature = isV3
-    ? String(req.headers.get("x-hubspot-signature-v3") || req.headers.get("X-HubSpot-Signature-v3") || "").trim()
-    : String(req.headers.get("x-hubspot-signature") || req.headers.get("X-HubSpot-Signature") || "").trim();
-  const timestamp = String(req.headers.get("x-hubspot-request-timestamp") || req.headers.get("X-HubSpot-Request-Timestamp") || "").trim();
-
-  const ok = verifyWebhookSignature({
-    clientSecret,
-    method: req.method || "POST",
-    url: requestFullUrl(req),
-    body: rawBody,
-    signature,
-    signatureVersion: versionRaw,
-    ...(isV3 ? { timestamp } : {}),
+function logWebhook(level: "info" | "error", payload: Record<string, unknown>): void {
+  const line = JSON.stringify({
+    integration: "hubspot",
+    route: "webhook",
+    level,
+    ...payload,
   });
-
-  if (!ok) {
-    return new NextResponse(null, { status: 401 });
+  if (level === "error") {
+    console.error(line);
+    return;
   }
+  console.info(line);
+}
 
-  let events: any[] = [];
+function isPendingQueueState(state: string): boolean {
+  return state === "waiting" || state === "active" || state === "delayed" || state === "prioritized" || state === "waiting-children";
+}
+
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({ ok: true });
+}
+
+export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const parsed = JSON.parse(rawBody || "[]");
-    events = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-  } catch {
-    events = [];
-  }
+    const rawBody = await req.text();
+    const signature = String(req.headers.get("x-hubspot-signature-v3") || "").trim();
+    const timestamp = String(req.headers.get("x-hubspot-request-timestamp") || "").trim();
+    const url = requestFullUrl(req);
 
-  const queue = getIngestQueue();
-
-  for (const ev of events) {
-    const sub = String(ev?.subscriptionType || ev?.changeType || "").trim();
-    const portalId = String(ev?.portalId ?? ev?.hubId ?? "").trim();
-    const objectId = String(ev?.objectId ?? ev?.dealId ?? "").trim();
-    if (!portalId || !objectId) continue;
-
-    const { rows } = await pool.query<{ org_id: string }>(
-      `SELECT org_id::text AS org_id FROM hubspot_connections WHERE hub_id = $1 LIMIT 1`,
-      [portalId]
-    );
-    const orgId = Number(rows?.[0]?.org_id || 0);
-    if (!orgId) continue;
-
-    if (!queue || QUEUE_NAME !== "opportunity-ingest") continue;
-
-    if (sub === "deal.deletion" || sub === "deal.deleted") {
-      try {
-        await queue.add(
-          "hubspot-deal-delete",
-          { orgId, dealId: objectId },
-          { jobId: `hubspot-deal-delete_${orgId}_${objectId}_${Date.now()}`, removeOnComplete: true, removeOnFail: false }
-        );
-      } catch {
-        /* ignore */
-      }
-      continue;
+    const verified = verifyHubSpotWebhookSignature({
+      rawBody,
+      signature,
+      timestamp,
+      method: req.method || "POST",
+      url,
+    });
+    if (!verified) {
+      logWebhook("error", {
+        event: "signature_verification_failed",
+        method: req.method || "POST",
+        url,
+      });
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    if (sub === "deal.creation" || sub === "deal.propertyChange") {
-      if (sub === "deal.creation") {
-        const { after, before } = getHubspotScoringCloseDateBounds();
-        const props = ev?.properties || {};
-        const closeRaw = props?.closedate ?? props?.hs_closedate;
-        if (closeRaw) {
-          const cd = new Date(String(closeRaw));
-          if (
-            Number.isFinite(cd.getTime()) &&
-            (cd.getTime() < after.getTime() || cd.getTime() >= before.getTime())
-          ) {
+    const parsed: unknown = JSON.parse(rawBody || "[]");
+    const dealEvents = extractDealEvents(parsed);
+    if (!dealEvents.length) {
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    const portalId = extractPortalId(parsed);
+    if (!portalId) {
+      logWebhook("error", { event: "missing_portal_id" });
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+
+    const { rows } = await pool.query<{ org_id: string }>(
+      `
+      SELECT org_id::text AS org_id
+      FROM hubspot_connections
+      WHERE hub_id::text = $1
+      LIMIT 1
+      `,
+      [portalId]
+    );
+    const orgId = Number(rows[0]?.org_id || 0);
+    if (!Number.isFinite(orgId) || orgId <= 0) {
+      return NextResponse.json({ ok: true, skipped: "unknown_portal" });
+    }
+
+    const queue = getIngestQueue();
+    if (!queue || QUEUE_NAME !== "opportunity-ingest") {
+      logWebhook("error", {
+        event: "queue_unavailable",
+        orgId,
+        portalId,
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    let queued = 0;
+    const uniqueDealIds = Array.from(new Set(dealEvents.map((event) => event.dealId)));
+    for (const dealId of uniqueDealIds) {
+      const jobId = `hubspot-deal-update_${orgId}_${dealId}`;
+      const existingJob = await queue.getJob(jobId);
+      if (existingJob) {
+        const state = await existingJob.getState();
+        if (isPendingQueueState(state)) {
+          continue;
+        }
+        if (state === "failed" || state === "completed") {
+          try {
+            await existingJob.remove();
+          } catch (error) {
+            logWebhook("error", {
+              event: "job_remove_failed",
+              orgId,
+              dealId,
+              state,
+              error: error instanceof Error ? error.message : String(error),
+            });
             continue;
           }
         }
       }
-      try {
-        await queue.add(
-          "hubspot-deal-update",
-          { orgId, dealId: objectId },
-          { jobId: `hubspot-deal-update_${orgId}_${objectId}_${Date.now()}`, removeOnComplete: true, removeOnFail: false }
-        );
-      } catch {
-        /* ignore */
-      }
-    }
-  }
 
-  return NextResponse.json({ ok: true });
+      await queue.add(
+        "hubspot-deal-update",
+        { orgId, dealId, syncType: "webhook" },
+        {
+          jobId,
+          attempts: 3,
+          backoff: { type: "exponential", delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+      queued += 1;
+    }
+
+    return NextResponse.json({ ok: true, queued });
+  } catch (error) {
+    logWebhook("error", {
+      event: "webhook_internal_error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json({ ok: true });
+  }
 }

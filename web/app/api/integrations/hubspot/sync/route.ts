@@ -68,6 +68,24 @@ export async function POST() {
   const o = await org(auth);
   if (o.ok === false) return NextResponse.json({ ok: false, error: o.error }, { status: o.status });
 
+  const inFlight = await pool.query<{ exists: number }>(
+    `
+    SELECT 1 AS exists
+    FROM hubspot_sync_log
+    WHERE org_id = $1
+      AND status IN ('pending', 'running')
+      AND started_at > now() - interval '10 minutes'
+    LIMIT 1
+    `,
+    [o.orgId]
+  );
+  if (inFlight.rows.length) {
+    return NextResponse.json(
+      { ok: false, error: "Sync already in progress. Please wait." },
+      { status: 429 }
+    );
+  }
+
   const ins = await pool.query<{ id: string }>(
     `
     INSERT INTO hubspot_sync_log (org_id, sync_type, status)

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { pool } from "../../../../../lib/pool";
-import { encryptHubSpotTokenForStorage, hubspotExchangeCodeForTokens, verifyHubSpotOAuthState } from "../../../../../lib/hubspotClient";
+import {
+  encryptHubSpotTokenForStorage,
+  hubspotExchangeCodeForTokens,
+  populateHubSpotHubDomainIfMissing,
+  verifyHubSpotOAuthState,
+} from "../../../../../lib/hubspotClient";
 
 export const runtime = "nodejs";
 
@@ -47,6 +52,11 @@ export async function GET(req: Request) {
     `,
     [orgId, hubId, encAccess.data, encRefresh.data, expiresAt.toISOString(), scopes.length ? scopes : null, hubTier]
   );
+
+  await populateHubSpotHubDomainIfMissing({
+    orgId,
+    accessToken: tok.data.access_token,
+  });
 
   redirect(`${appUrl}/admin/integrations/hubspot`);
 }

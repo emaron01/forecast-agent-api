@@ -36,7 +36,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: result.error }, { status: 200 });
     }
     return NextResponse.json({ ok: true, ...result.data });
-  } catch {
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        integration: "hubspot",
+        route: "writeback_deal",
+        event: "writeback_route_failed",
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
     return NextResponse.json({ ok: true });
   }
 }

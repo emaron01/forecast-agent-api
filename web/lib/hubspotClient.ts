@@ -69,6 +69,14 @@ function sessionSecret(): string {
   return s;
 }
 
+function hubspotOAuthClientId(): string {
+  return String(process.env.HUBSPOT_APP_ID || process.env.HUBSPOT_CLIENT_ID || "").trim();
+}
+
+function hubspotOAuthClientSecret(): string {
+  return String(process.env.HUBSPOT_APP_CLIENT_SECRET || process.env.HUBSPOT_CLIENT_SECRET || "").trim();
+}
+
 function deriveKey(): Buffer | null {
   const sec = sessionSecret();
   if (!sec) return null;
@@ -148,8 +156,8 @@ async function refreshTokensTransactional(
   orgId: number,
   refreshPlain: string
 ): Promise<HubSpotResult<{ access: string; refresh: string; expiresAt: Date }>> {
-  const clientId = String(process.env.HUBSPOT_CLIENT_ID || "").trim();
-  const clientSecret = String(process.env.HUBSPOT_CLIENT_SECRET || "").trim();
+  const clientId = hubspotOAuthClientId();
+  const clientSecret = hubspotOAuthClientSecret();
   if (!clientId || !clientSecret) return { ok: false, error: "HubSpot OAuth env missing" };
 
   const body = new URLSearchParams({
@@ -882,8 +890,8 @@ export async function hubspotExchangeCodeForTokens(args: {
 }): Promise<
   HubSpotResult<{ access_token: string; refresh_token: string; expires_in: number; hub_id?: string; scope_parts: string[] }>
 > {
-  const clientId = String(process.env.HUBSPOT_CLIENT_ID || "").trim();
-  const clientSecret = String(process.env.HUBSPOT_CLIENT_SECRET || "").trim();
+  const clientId = hubspotOAuthClientId();
+  const clientSecret = hubspotOAuthClientSecret();
   if (!clientId || !clientSecret) return { ok: false, error: "HubSpot OAuth env missing" };
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -910,6 +918,103 @@ export async function hubspotExchangeCodeForTokens(args: {
       scope_parts,
     },
   };
+}
+
+async function fetchHubSpotAccessTokenMetadata(args: {
+  accessToken: string;
+}): Promise<HubSpotResult<{ accountHubId: string; hubDomain: string }>> {
+  try {
+    const accessToken = String(args.accessToken || "").trim();
+    if (!accessToken) return { ok: false, error: "Access token missing" };
+
+    const res = await fetch(
+      `https://api.hubapi.com/oauth/v1/access-tokens/${encodeURIComponent(accessToken)}`,
+      {
+        method: "GET",
+      }
+    );
+    const text = await res.text();
+    let json: any = {};
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Invalid HubSpot token metadata response",
+      };
+    }
+
+    if (!res.ok) {
+      return { ok: false, error: json?.message || text || `HTTP ${res.status}` };
+    }
+
+    return {
+      ok: true,
+      data: {
+        accountHubId: String(json?.account_hub_id || "").trim(),
+        hubDomain: String(json?.hub_domain || "").trim(),
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function populateHubSpotHubDomainIfMissing(args: {
+  orgId: number;
+  accessToken: string;
+}): Promise<void> {
+  try {
+    const orgId = Number(args.orgId);
+    if (!Number.isFinite(orgId) || orgId <= 0) return;
+
+    const existing = await pool.query<{ hub_domain: string | null }>(
+      `
+      SELECT hub_domain
+      FROM hubspot_connections
+      WHERE org_id = $1
+      LIMIT 1
+      `,
+      [orgId]
+    );
+    const hubDomain = String(existing.rows[0]?.hub_domain || "").trim();
+    if (hubDomain) return;
+
+    const metadata = await fetchHubSpotAccessTokenMetadata({ accessToken: args.accessToken });
+    if (metadata.ok === false) {
+      console.error(
+        JSON.stringify({
+          integration: "hubspot",
+          event: "hub_domain_lookup_failed",
+          orgId,
+          error: metadata.error,
+        })
+      );
+      return;
+    }
+
+    const nextHubDomain = String(metadata.data.hubDomain || "").trim();
+    if (!nextHubDomain) return;
+
+    await pool.query(
+      `
+      UPDATE hubspot_connections
+      SET hub_domain = $1
+      WHERE org_id = $2
+        AND (hub_domain IS NULL OR hub_domain = '')
+      `,
+      [nextHubDomain, orgId]
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        integration: "hubspot",
+        event: "hub_domain_update_failed",
+        orgId: Number(args.orgId) || null,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 }
 
 /**
