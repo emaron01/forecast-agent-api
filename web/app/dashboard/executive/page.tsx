@@ -24,6 +24,7 @@ import {
   type ChannelLedFedRow,
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
+import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
@@ -1577,6 +1578,17 @@ export default async function ExecutiveDashboardPage({
     channelContributionRows = [];
   }
 
+  const channelPartnersExecutive =
+    showChannelContribution && selectedPeriodId
+      ? await loadChannelPartnersExecutive({
+          orgId: ctx.user.org_id,
+          quotaPeriodId: selectedPeriodId,
+          prevQuotaPeriodId: prevPeriodId,
+          territoryRepIds: visibleRepIds,
+          partnerNames: [],
+        }).catch(() => null)
+      : null;
+
   if (selectedPeriodId && comparePeriodIds.length) {
     const teamResult = await buildOrgSubtree({
       orgId,
@@ -2085,6 +2097,7 @@ export default async function ExecutiveDashboardPage({
           showChannelContribution={showChannelContribution}
           channelContributionHero={channelContributionHero}
           channelContributionRows={channelContributionRows}
+          channelPartnersExecutive={channelPartnersExecutive}
           channelTeamPayload={channelTeamPayload}
           revenueTabProps={{
             basePath: "/dashboard/executive",

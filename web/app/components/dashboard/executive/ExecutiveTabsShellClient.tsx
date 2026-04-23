@@ -777,6 +777,7 @@ export function ExecutiveTabsShellClient(props: {
   showChannelContribution?: boolean;
   channelContributionHero?: ChannelPartnerHeroProps | null;
   channelContributionRows?: ChannelLedFedRow[];
+  channelPartnersExecutive?: ExecutiveGapInsightsClientProps["partnersExecutive"];
   orgName?: string;
   viewerRole?: string | null;
   reportBuilderRepRows: any[];
@@ -1038,7 +1039,11 @@ export function ExecutiveTabsShellClient(props: {
         )}
         {"channel" === activeTab && (
           <ChannelTabPanelClient
-            revenueTabProps={props.revenueTabProps}
+            revenueTabProps={{
+              ...props.revenueTabProps,
+              partnersExecutive:
+                props.channelPartnersExecutive ?? props.revenueTabProps.partnersExecutive,
+            }}
             viewerRole={props.viewerRole}
             showChannelContribution={props.showChannelContribution}
             channelContributionHero={props.channelContributionHero}
