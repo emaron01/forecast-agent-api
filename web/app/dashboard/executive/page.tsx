@@ -24,13 +24,12 @@ import {
   type ChannelLedFedRow,
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
-import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
+import { loadExecutiveChannelTabPartners } from "../../../lib/executiveChannelTabPartners";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
-import { getChannelTerritoryRepIds } from "../../../lib/channelTerritoryScope";
 
 export const runtime = "nodejs";
 
@@ -1566,80 +1565,6 @@ export default async function ExecutiveDashboardPage({
 
   const channelTeamPayload = await channelTeamPayloadPromise;
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
-  const executiveChannelScopeRepRows = Array.from(
-    new Map(
-      [
-        ...(channelTeamPayload?.channelDashboardSummary?.repDirectory ?? []),
-        ...repDirectory,
-      ]
-        .filter((r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP && r.user_id != null)
-        .map((r) => [Number(r.id), r] as const)
-    ).values()
-  );
-  let executiveChannelScopeUserIds = Array.from(
-    new Set(
-      executiveChannelScopeRepRows
-        .map((r) => Number(r.user_id))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    )
-  );
-  if (
-    showChannelContribution &&
-    executiveChannelScopeUserIds.length === 0 &&
-    viewerHlForChannelTeam >= HIERARCHY.ADMIN &&
-    viewerHlForChannelTeam <= HIERARCHY.MANAGER
-  ) {
-    executiveChannelScopeUserIds = await pool
-      .query<{ user_id: number }>(
-        `
-        SELECT DISTINCT r.user_id
-        FROM reps r
-        INNER JOIN users u
-          ON u.id = r.user_id
-         AND u.org_id = $1::bigint
-        WHERE r.organization_id = $1::bigint
-          AND (r.active IS TRUE OR r.active IS NULL)
-          AND (u.active IS TRUE OR u.active IS NULL)
-          AND u.hierarchy_level = $2::int
-          AND r.user_id IS NOT NULL
-        ORDER BY r.user_id ASC
-        `,
-        [ctx.user.org_id, HIERARCHY.CHANNEL_REP]
-      )
-      .then((res) =>
-        (res.rows || [])
-          .map((row) => Number(row.user_id))
-          .filter((id) => Number.isFinite(id) && id > 0)
-      )
-      .catch(() => []);
-  }
-  const executiveChannelTerritoryScopes =
-    showChannelContribution && executiveChannelScopeUserIds.length > 0
-      ? await Promise.all(
-          executiveChannelScopeUserIds.map((channelUserId) =>
-            getChannelTerritoryRepIds({
-              orgId: ctx.user.org_id,
-              channelUserId,
-            }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
-          )
-        )
-      : [];
-  const executiveChannelTerritoryRepIds = Array.from(
-    new Set(
-      executiveChannelTerritoryScopes
-        .flatMap((scope) => scope.repIds)
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    )
-  );
-  const executiveChannelPartnerNames = Array.from(
-    new Set(
-      executiveChannelTerritoryScopes
-        .flatMap((scope) => scope.partnerNames)
-        .map((name) => String(name || "").trim().toLowerCase())
-        .filter(Boolean)
-    )
-  );
 
   let channelContributionRows: ChannelLedFedRow[] = [];
   try {
@@ -1656,13 +1581,11 @@ export default async function ExecutiveDashboardPage({
 
   const channelPartnersExecutive =
     showChannelContribution && selectedPeriodId
-      ? await loadChannelPartnersExecutive({
+      ? await loadExecutiveChannelTabPartners({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
-          territoryRepIds: executiveChannelTerritoryRepIds,
-          partnerNames: executiveChannelPartnerNames,
-          scopeMode: "merged",
+          visibleRepIds,
         }).catch(() => null)
       : null;
 
