@@ -96,6 +96,14 @@ function normalizeChannelHeroPartnerNames(names: string[]): string[] {
   );
 }
 
+function channelTabDealRegisteredSql(alias: string): string {
+  return `(
+    ${alias}.deal_registration IS TRUE
+    OR ${alias}.deal_reg_date IS NOT NULL
+    OR NULLIF(btrim(COALESCE(${alias}.deal_reg_id::text, '')), '') IS NOT NULL
+  )`;
+}
+
 /** OR of rep allowlist and partner allowlist; $3=repIds, $4=partnerNames, $5=rep count, $6=partner count */
 function channelHeroOppScopeSql(alias: string): string {
   return `(
@@ -954,7 +962,7 @@ export async function loadChannelLedFedRows(args: {
           (m.crm_bucket IN ('lost', 'excluded')) AS is_lost,
           (m.crm_bucket IN ('commit', 'best_case', 'pipeline')) AS is_active,
           m.crm_bucket AS bucket,
-          (m.deal_registration IS TRUE) AS is_led
+          ${channelTabDealRegisteredSql("m")} AS is_led
         FROM mapped m
       )
       SELECT

@@ -28,6 +28,13 @@ const INGEST_CATEGORIES = [
   "budget",
 ] as const;
 
+const SIGNAL_TO_EVIDENCE_STRENGTH: Record<string, string> = {
+  strong: "explicit_verified",
+  medium: "credible_indirect",
+  weak: "vague_rep_assertion",
+  missing: "unknown_missing",
+};
+
 const RUBRIC_UNAVAILABLE_EXTRACTED: CommentIngestionExtracted = {
   summary: "Extraction aborted: score definitions could not be loaded; extraction cannot use authoritative rubric.",
   meddpicc: {},
@@ -127,9 +134,16 @@ export async function runSingleCategoryIngest(args: {
   }
 
   const matthewResponse = parsed;
-  console.log("[INGEST_DEBUG] Matthew raw response:", JSON.stringify(matthewResponse, null, 2));
+  const signal = String(matthewResponse.signal || "").trim().toLowerCase();
+  const evidenceStrength =
+    SIGNAL_TO_EVIDENCE_STRENGTH[signal] || "unknown_missing";
 
-  return { category, rawText, ...parsed };
+  return {
+    category,
+    rawText,
+    ...matthewResponse,
+    evidence_strength: matthewResponse.evidence_strength || evidenceStrength,
+  };
 }
 
 /**
