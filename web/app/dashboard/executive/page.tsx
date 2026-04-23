@@ -1565,16 +1565,62 @@ export default async function ExecutiveDashboardPage({
   }
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
-  const executiveChannelRepRows = repDirectory.filter(
-    (r) => Number(r.hierarchy_level) === HIERARCHY.CHANNEL_REP && r.user_id != null
+  const EXECUTIVE_CHANNEL_LEADER_LEVELS = new Set<number>([HIERARCHY.CHANNEL_EXEC, HIERARCHY.CHANNEL_MANAGER]);
+  const executiveVisibleChannelLeaderUserIds = Array.from(
+    new Set(
+      repDirectory
+        .filter((r) => EXECUTIVE_CHANNEL_LEADER_LEVELS.has(Number(r.hierarchy_level)))
+        .map((r) => Number(r.user_id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
   );
+  const executiveVisibleChannelUserIds =
+    showChannelContribution && executiveVisibleChannelLeaderUserIds.length > 0
+      ? await pool
+          .query<{ user_id: number }>(
+            `
+            WITH RECURSIVE channel_tree AS (
+              SELECT
+                u.id AS user_id,
+                COALESCE(u.hierarchy_level, 99) AS hierarchy_level
+              FROM users u
+              WHERE u.org_id = $1::bigint
+                AND u.id = ANY($2::bigint[])
+                AND (u.active IS TRUE OR u.active IS NULL)
+
+              UNION ALL
+
+              SELECT
+                c.id AS user_id,
+                COALESCE(c.hierarchy_level, 99) AS hierarchy_level
+              FROM users c
+              JOIN channel_tree t
+                ON c.manager_user_id = t.user_id
+              WHERE c.org_id = $1::bigint
+                AND COALESCE(c.hierarchy_level, 99) IN (6, 7, 8)
+                AND (c.active IS TRUE OR c.active IS NULL)
+            )
+            SELECT DISTINCT user_id
+            FROM channel_tree
+            WHERE hierarchy_level IN (6, 7, 8)
+            ORDER BY user_id ASC
+            `,
+            [ctx.user.org_id, executiveVisibleChannelLeaderUserIds]
+          )
+          .then((res) =>
+            (res.rows || [])
+              .map((row) => Number(row.user_id))
+              .filter((id) => Number.isFinite(id) && id > 0)
+          )
+          .catch(() => [])
+      : [];
   const executiveChannelTerritoryScopes =
-    showChannelContribution && executiveChannelRepRows.length > 0
+    showChannelContribution && executiveVisibleChannelUserIds.length > 0
       ? await Promise.all(
-          executiveChannelRepRows.map((r) =>
+          executiveVisibleChannelUserIds.map((channelUserId) =>
             getChannelTerritoryRepIds({
               orgId: ctx.user.org_id,
-              channelUserId: Number(r.user_id),
+              channelUserId,
             }).catch(() => ({ repIds: [] as number[], partnerNames: [] as string[] }))
           )
         )

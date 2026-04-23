@@ -222,7 +222,10 @@ export async function loadChannelPartnersExecutive(args: {
           WHERE o.org_id = $1
             AND o.partner_name IS NOT NULL
             AND btrim(o.partner_name) <> ''
-            AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
+            AND (
+              ${partnerMotionPredicatesSql.isPartnerInfluenced}
+              OR ${partnerMotionPredicatesSql.isPartnerSourced}
+            )
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
@@ -354,7 +357,10 @@ export async function loadChannelPartnersExecutive(args: {
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
-          AND (${partnerMotionPredicatesSql.isDirect} OR ${partnerMotionPredicatesSql.isPartnerSourced})
+          AND (
+            ${partnerMotionPredicatesSql.isPartnerInfluenced}
+            OR ${partnerMotionPredicatesSql.isPartnerSourced}
+          )
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
