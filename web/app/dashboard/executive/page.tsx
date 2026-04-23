@@ -1932,7 +1932,7 @@ export default async function ExecutiveDashboardPage({
             pipelineMomentum: summary.pipelineMomentum,
             closedWonFyYtd: summary.closedWonFyYtd,
             crmTotals: summary.crmForecast,
-            partnersExecutive: summary.partnersExecutive,
+            partnersExecutive: summary.partnersExecutive ?? null,
             quota: summary.quota,
             aiForecast: summary.aiForecast.weighted_forecast,
             crmForecast: summary.crmForecast.weighted_forecast,
