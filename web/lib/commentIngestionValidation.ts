@@ -7,6 +7,8 @@ export type CategoryExtraction = {
   score?: number;
   evidence_text?: string;
   tip?: string;
+  evidence_strength?: string;
+  confidence?: string;
 };
 
 export type CommentIngestionExtracted = {
@@ -70,6 +72,8 @@ export type SingleCategoryResult = {
   evidence_text: string;
   tip: string;
   signal: string;
+  evidence_strength?: string;
+  confidence?: string;
 };
 
 /** Parse LLM response for one category. Returns null if invalid. */
@@ -86,6 +90,8 @@ export function tryParseSingleCategoryExtraction(text: string): SingleCategoryRe
       evidence_text: String(parsed.evidence_text ?? "").trim(),
       tip: String(parsed.tip ?? "").trim(),
       signal: String(parsed.signal ?? "missing").trim().toLowerCase() || "missing",
+      evidence_strength: typeof parsed.evidence_strength === "string" ? String(parsed.evidence_strength).trim() || undefined : undefined,
+      confidence: typeof parsed.confidence === "string" ? String(parsed.confidence).trim() || undefined : undefined,
     };
   } catch {
     return null;

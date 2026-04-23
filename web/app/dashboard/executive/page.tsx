@@ -25,7 +25,6 @@ import {
   type ChannelPartnerHeroProps,
 } from "../../../lib/channelPartnerHeroData";
 import { loadChannelPartnersExecutive } from "../../../lib/channelPartnersExecutive";
-import { loadExecutiveChannelScope } from "../../../lib/executiveChannelScope";
 import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
 import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../../../lib/channelTeamData";
@@ -1510,22 +1509,11 @@ export default async function ExecutiveDashboardPage({
 
   const showChannelContribution = Number(ctx.user.hierarchy_level ?? 99) <= 2;
   const channelTeamPayload = await channelTeamPayloadPromise;
-  const executiveChannelScope =
-    channelTeamPayload?.channelScope ??
-    (showChannelContribution
-      ? await loadExecutiveChannelScope({
-          orgId: ctx.user.org_id,
-          visibleRepIds,
-        }).catch(() => ({
-            territoryRepIds: [] as number[],
-            assignedPartnerNames: [] as string[],
-          }))
-      : {
-          territoryRepIds: [] as number[],
-          assignedPartnerNames: [] as string[],
-        });
-  const executiveChannelTerritoryRepIds = executiveChannelScope.territoryRepIds;
-  const executiveChannelPartnerNames = executiveChannelScope.assignedPartnerNames;
+  // Executive Channel tab uses the executive viewer's territory only.
+  // Channel data is the partner-touched subset of that sales-owned scope.
+  const executiveChannelTerritoryRepIds = visibleRepIds;
+  const executiveChannelPartnerNames: string[] = [];
+  const executiveChannelDirectTerritoryRepIds: number[] = [];
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
@@ -1634,6 +1622,7 @@ export default async function ExecutiveDashboardPage({
           quotaPeriodId: selectedPeriodId,
           prevQuotaPeriodId: prevPeriodId,
           territoryRepIds: executiveChannelTerritoryRepIds,
+          directTerritoryRepIds: executiveChannelDirectTerritoryRepIds,
           partnerNames: executiveChannelPartnerNames,
         }).catch(() => null)
       : null;

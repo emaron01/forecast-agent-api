@@ -114,6 +114,38 @@ function splitLabelEvidence(summary: any) {
   return { label: "", evidence: s };
 }
 
+function firstNonEmptyString(...values: any[]): string | undefined {
+  for (const value of values) {
+    const s = String(value ?? "").trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+function extractFinalizeConfidenceFields(obj: any, category: CategoryKey) {
+  const prefix = oppPrefixForCategory(category);
+  const categoryCamel = category.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+  const prefixCamel = prefix.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+
+  return {
+    evidence_strength: firstNonEmptyString(
+      obj?.[`${category}_evidence_strength`],
+      obj?.[`${prefix}_evidence_strength`],
+      obj?.[`${categoryCamel}EvidenceStrength`],
+      obj?.[`${prefixCamel}EvidenceStrength`],
+      obj?.evidence_strength,
+      obj?.evidenceStrength
+    ),
+    confidence: firstNonEmptyString(
+      obj?.[`${category}_confidence`],
+      obj?.[`${prefix}_confidence`],
+      obj?.[`${categoryCamel}Confidence`],
+      obj?.[`${prefixCamel}Confidence`],
+      obj?.confidence
+    ),
+  };
+}
+
 /** When LLM says material_change=false, compute deltas; if any delta is true, override to material change and return payload to persist. */
 function resolveMaterialChangeOverride(args: {
   llmMaterial: boolean;
@@ -676,6 +708,8 @@ async function saveToOpportunities(args: {
   score: number;
   evidence: string;
   tip: string;
+  evidence_strength?: string;
+  confidence?: string;
   riskSummary: string;
   nextSteps: string;
   champion_name?: string;
@@ -696,6 +730,10 @@ async function saveToOpportunities(args: {
     risk_summary: String(args.riskSummary || "").trim(),
     next_steps: String(args.nextSteps || "").trim(),
   };
+  const evidenceStrength = String(args.evidence_strength ?? "").trim();
+  if (evidenceStrength) toolArgs[`${prefix}_evidence_strength`] = evidenceStrength;
+  const confidence = String(args.confidence ?? "").trim();
+  if (confidence) toolArgs[`${prefix}_confidence`] = confidence;
   // Role-safe: only pass entity fields for the category being updated (no cross-role writes).
   if (args.category === "champion") {
     const cn = String(args.champion_name ?? "").trim();
@@ -1184,6 +1222,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               return;
             }
 
+            const finalizeConfidence = extractFinalizeConfidenceFields(obj, category);
+
             const rawChampionName = String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined;
             const rawChampionTitle = String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined;
             const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
@@ -1223,6 +1263,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               score,
               evidence,
               tip,
+              evidence_strength: finalizeConfidence.evidence_strength,
+              confidence: finalizeConfidence.confidence,
               riskSummary,
               nextSteps,
               ...sseEntity,
@@ -1399,6 +1441,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     if (!evidence) return NextResponse.json({ ok: false, error: "Model returned empty evidence" }, { status: 500 });
     if (!tip) return NextResponse.json({ ok: false, error: "Model returned empty tip" }, { status: 500 });
 
+    const finalizeConfidence = extractFinalizeConfidenceFields(obj, category);
+
     const rawChampionName = String((obj as any)?.champion_name ?? (obj as any)?.championName ?? "").trim() || undefined;
     const rawChampionTitle = String((obj as any)?.champion_title ?? (obj as any)?.championTitle ?? "").trim() || undefined;
     const rawEbName = String((obj as any)?.eb_name ?? (obj as any)?.ebName ?? "").trim() || undefined;
@@ -1438,6 +1482,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       score,
       evidence,
       tip,
+      evidence_strength: finalizeConfidence.evidence_strength,
+      confidence: finalizeConfidence.confidence,
       riskSummary,
       nextSteps,
       ...jsonEntity,

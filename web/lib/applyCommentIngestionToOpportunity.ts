@@ -86,6 +86,10 @@ function buildCategoryArgs(
     const summary = evidenceText ? (label ? `${label}: ${evidenceText}` : evidenceText) : "";
     args[`${dbPrefix}_summary`] = summary;
     args[`${dbPrefix}_tip`] = tip;
+    const evidenceStrength = String((data as any)?.evidence_strength ?? "").trim();
+    if (evidenceStrength) args[`${dbPrefix}_evidence_strength`] = evidenceStrength;
+    const confidence = String((data as any)?.confidence ?? "").trim();
+    if (confidence) args[`${dbPrefix}_confidence`] = confidence;
   }
 
   return args;

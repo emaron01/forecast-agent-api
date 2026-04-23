@@ -83,6 +83,8 @@ function singleResultToCategoryExtraction(r: { score: number; evidence_text: str
     score: r.score,
     evidence_text: r.evidence_text,
     tip: r.tip,
+    evidence_strength: (r as any).evidence_strength,
+    confidence: (r as any).confidence,
   };
 }
 
@@ -94,7 +96,16 @@ export async function runSingleCategoryIngest(args: {
   instructionsBase: string;
   category: string;
   retryOnInvalid?: boolean;
-}): Promise<{ category: string; rawText: string; score: number; evidence_text: string; tip: string; signal: string }> {
+}): Promise<{
+  category: string;
+  rawText: string;
+  score: number;
+  evidence_text: string;
+  tip: string;
+  signal: string;
+  evidence_strength?: string;
+  confidence?: string;
+}> {
   const { instructionsBase, category, retryOnInvalid = true } = args;
   const instructions = instructionsBase + "\n\n" + getCategoryInstruction(category);
   const userMessage = `Return JSON for the ${category.replace(/_/g, " ")} category only.`;
