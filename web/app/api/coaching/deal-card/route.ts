@@ -321,20 +321,13 @@ export async function GET(req: Request) {
       }
     }
 
-    const persistedScoring = row.audit_details?.scoring ?? null;
     const computedScoring = computeConfidence({
       opportunity: row,
       source: "system",
       now: new Date(),
     });
-    const confidenceBand =
-      persistedScoring && typeof persistedScoring.confidence_band === "string"
-        ? (String(persistedScoring.confidence_band).trim().toLowerCase() as "high" | "medium" | "low")
-        : computedScoring.confidence_band;
-    const confidenceSummary =
-      persistedScoring && typeof persistedScoring.confidence_summary === "string"
-        ? String(persistedScoring.confidence_summary).trim() || computedScoring.confidence_summary
-        : computedScoring.confidence_summary;
+    const confidenceBand = computedScoring.confidence_band;
+    const confidenceSummary = computedScoring.confidence_summary;
 
     const riskFlags: Array<{ key: RiskCategoryKey; label: string; tip: string | null }> = [];
     const push = (key: RiskCategoryKey, displayName: string, score: number | null, tip: string | null) => {
