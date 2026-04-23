@@ -126,6 +126,9 @@ export async function runSingleCategoryIngest(args: {
     throw new Error(`Comment ingestion returned invalid JSON for category ${category} after retry`);
   }
 
+  const matthewResponse = parsed;
+  console.log("[INGEST_DEBUG] Matthew raw response:", JSON.stringify(matthewResponse, null, 2));
+
   return { category, rawText, ...parsed };
 }
 
