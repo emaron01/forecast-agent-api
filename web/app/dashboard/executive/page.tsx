@@ -1513,7 +1513,7 @@ export default async function ExecutiveDashboardPage({
   // Channel data is the partner-touched subset of that sales-owned scope.
   const executiveChannelTerritoryRepIds = visibleRepIds;
   const executiveChannelPartnerNames: string[] = [];
-  const executiveChannelDirectTerritoryRepIds: number[] = [];
+  const executiveChannelDirectTerritoryRepIds = visibleRepIds;
 
   let topPartnerWon: any[] = [];
   let topPartnerLost: any[] = [];
