@@ -157,6 +157,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
   const deals = props.deals || [];
   const [expandedDealId, setExpandedDealId] = useState<string>("");
   const [expandedCat, setExpandedCat] = useState<Record<string, string>>({});
+  const [expandedAdmission, setExpandedAdmission] = useState<Record<string, boolean>>({});
   const [requestingDealId, setRequestingDealId] = useState<string>("");
   const [requestNote, setRequestNote] = useState("");
   const [requestSubmitting, setRequestSubmitting] = useState(false);
@@ -265,6 +266,11 @@ export function ExecutiveDealsDrivingGapModule(props: {
               const stage = String(d.crm_stage?.label || "").trim() || "—";
               const activeKey = String(expandedCat[id] || "").trim();
               const activeCat = (d.meddpicc_tb || []).find((c) => String(c.key) === activeKey) || null;
+              const admissionReasons = (d.commit_admission_reasons || []).filter((r) => String(r || "").trim());
+              const hasAdmissionDetails =
+                (d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") &&
+                (!!d.commit_whats_missing || !!d.verdict_note || admissionReasons.length > 0);
+              const admissionOpen = !!expandedAdmission[id];
 
               const detailsId = `exec-gap-deal:${id}`;
 
@@ -278,6 +284,7 @@ export function ExecutiveDealsDrivingGapModule(props: {
                     onClick={() => {
                       setExpandedDealId((prev) => (prev === id ? "" : id));
                       setExpandedCat((prev) => ({ ...prev, [id]: "" }));
+                      setExpandedAdmission((prev) => ({ ...prev, [id]: prev[id] ?? true }));
                     }}
                   >
                     <div className="px-3 py-2">
@@ -380,10 +387,46 @@ export function ExecutiveDealsDrivingGapModule(props: {
                           ) : null}
                         </div>
 
-                        {d.verdict_note && (d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") ? (
-                          <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-3">
-                            <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Verdict note</div>
-                            <div className="mt-1 text-sm text-[color:var(--sf-text-primary)]">{d.verdict_note}</div>
+                        {hasAdmissionDetails ? (
+                          <div className="mt-3 rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedAdmission((prev) => ({ ...prev, [id]: !admissionOpen }))}
+                              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+                              aria-expanded={admissionOpen}
+                            >
+                              <div>
+                                <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Commit admission details</div>
+                                <div className="mt-0.5 text-sm text-[color:var(--sf-text-primary)]">
+                                  {d.commit_whats_missing || d.verdict_note || "View reasons"}
+                                </div>
+                              </div>
+                              <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">
+                                {admissionOpen ? "Hide" : "Show"}
+                              </span>
+                            </button>
+                            {admissionOpen ? (
+                              <div className="border-t border-[color:var(--sf-border)] px-3 py-3">
+                                {d.verdict_note ? (
+                                  <div className="text-sm text-[color:var(--sf-text-primary)]">{d.verdict_note}</div>
+                                ) : null}
+                                {d.commit_whats_missing ? (
+                                  <div className={d.verdict_note ? "mt-2 text-sm text-[color:var(--sf-text-primary)]" : "text-sm text-[color:var(--sf-text-primary)]"}>
+                                    {d.commit_whats_missing}
+                                  </div>
+                                ) : null}
+                                {admissionReasons.length ? (
+                                  <div className={d.verdict_note || d.commit_whats_missing ? "mt-2" : ""}>
+                                    <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Reasons</div>
+                                    <ul className="mt-1 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
+                                      {admissionReasons.map((reason) => (
+                                        <li key={reason}>{reason}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                         <div className="mt-3 grid gap-2 md:grid-cols-2">
