@@ -962,7 +962,7 @@ export default async function ChannelDashboardPage({
     topPartnerWon: channelTopPartnerWon,
     topPartnerLost: channelTopPartnerLost,
     periodName: selectedPeriod?.period_name ?? "",
-    channelTopPartnerDealsOnPage: false,
+    channelTopPartnerDealsOnPage: true,
   };
 
   const channelRevenueMixTabProps = {
