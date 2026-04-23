@@ -91,6 +91,14 @@ function healthPillClass(p: number | null | undefined) {
   return "err";
 }
 
+function confidencePillClass(band: string | null | undefined) {
+  const v = String(band || "").trim().toLowerCase();
+  if (v === "high") return "ok";
+  if (v === "medium") return "warn";
+  if (v === "low") return "err";
+  return "";
+}
+
 function inferCategoryFromPromptText(text: string): CategoryKey | "" {
   const t = String(text || "").toLowerCase();
   if (!t.trim()) return "";
@@ -2133,6 +2141,14 @@ export function DealReviewClient(props: {
                   AI: <b>{aiForecast}</b>
                 </span>
               ) : null}
+              {oppState?.scoring?.confidence_band ? (
+                <span
+                  className={`pill ${confidencePillClass(oppState.scoring.confidence_band)}`}
+                  title={oppState.scoring.confidence_summary || undefined}
+                >
+                  Confidence: <b style={{ textTransform: "capitalize" }}>{oppState.scoring.confidence_band}</b>
+                </span>
+              ) : null}
             </div>
             <div className="small">Read-only view</div>
           </>
@@ -2165,6 +2181,14 @@ export function DealReviewClient(props: {
               {aiForecast ? (
                 <span className="pill blue">
                   AI: <b>{aiForecast}</b>
+                </span>
+              ) : null}
+              {oppState?.scoring?.confidence_band ? (
+                <span
+                  className={`pill ${confidencePillClass(oppState.scoring.confidence_band)}`}
+                  title={oppState.scoring.confidence_summary || undefined}
+                >
+                  Confidence: <b style={{ textTransform: "capitalize" }}>{oppState.scoring.confidence_band}</b>
                 </span>
               ) : null}
             </div>
