@@ -211,7 +211,7 @@ export function QuotaSetupShell(props: QuotaSetupShellProps) {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas vs Closed Won (by quarter)</h2>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Rep quotas by quarter</h2>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Fiscal year: <span className="font-mono text-xs">{props.fiscalYear || "—"}</span>
             </p>
@@ -261,14 +261,6 @@ export function QuotaSetupShell(props: QuotaSetupShellProps) {
                               <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
                                 {fmtMoney(quotaByPeriodId.get(q.periodId) || 0)}
                               </div>
-                              {!props.hideClosedWonValues ? (
-                                <>
-                                  <div className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">closed won</div>
-                                  <div className="font-mono text-xs font-semibold text-[color:var(--sf-text-primary)]">
-                                    {fmtMoney(wonByPeriodId.get(q.periodId) || 0)}
-                                  </div>
-                                </>
-                              ) : null}
                             </div>
                           </td>
                         ))}
@@ -281,19 +273,15 @@ export function QuotaSetupShell(props: QuotaSetupShellProps) {
 
             <div className="mt-3 flex items-center justify-end">
               <ExportToExcelButton
-                fileName={`Team Quotas - Quota vs Won - ${props.fiscalYear}`}
+                fileName={`Team Quotas - By Quarter - ${props.fiscalYear}`}
                 sheets={[
                   {
-                    name: "Quota vs Won",
+                    name: "Rep Quotas By Quarter",
                     rows: props.reps.map((rep) => {
                       const quotaByPeriodId = new Map(rep.quota.map((q) => [Number(q.periodId), Number(q.amount || 0)] as const));
-                      const wonByPeriodId = new Map(rep.wonByPeriod.map((q) => [Number(q.periodId), Number(q.wonAmount || 0)] as const));
                       const out: Record<string, string | number> = { rep: rep.repName || "—" };
                       for (const q of quarters) {
                         out[`${q.key.toUpperCase()}_quota`] = quotaByPeriodId.get(q.periodId) || 0;
-                        out[`${q.key.toUpperCase()}_won`] = groupWonByPeriod.size
-                          ? groupWonByPeriod.get(q.periodId) || 0
-                          : wonByPeriodId.get(q.periodId) || 0;
                       }
                       return out;
                     }) as any,
