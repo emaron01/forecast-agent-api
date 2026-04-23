@@ -65,23 +65,6 @@ function normalizePartnerNames(names: string[]): string[] {
   );
 }
 
-function channelTabDealRegisteredSql(alias: string): string {
-  return `(
-    ${alias}.deal_registration IS TRUE
-    OR ${alias}.deal_reg_date IS NOT NULL
-    OR NULLIF(btrim(COALESCE(${alias}.deal_reg_id::text, '')), '') IS NOT NULL
-  )`;
-}
-
-function channelTabMotionCaseSql(alias: string): string {
-  return `
-CASE
-  WHEN ${alias}.partner_name IS NULL OR btrim(${alias}.partner_name) = '' THEN 'direct'
-  WHEN ${channelTabDealRegisteredSql(alias)} THEN 'partner_sourced'
-  ELSE 'partner_influenced'
-END`.trim();
-}
-
 // Executive Channel-tab motion classification should treat blank partner as Direct,
 // regardless of deal-registration data quality on the row.
 const directMotionWhereSql = `(o.partner_name IS NULL OR btrim(o.partner_name) = '')`;
@@ -126,7 +109,7 @@ export async function loadChannelPartnersExecutive(args: {
       ),
       channel_deals AS (
         SELECT
-          (${channelTabMotionCaseSql("o")})::text AS motion,
+          (${partnerMotionCaseSql("o")})::text AS motion,
           COALESCE(o.amount, 0)::float8 AS amount,
           o.health_score::float8 AS health_score,
           o.create_date::timestamptz AS create_date,
@@ -252,6 +235,10 @@ export async function loadChannelPartnersExecutive(args: {
           WHERE o.org_id = $1
             AND o.partner_name IS NOT NULL
             AND btrim(o.partner_name) <> ''
+            AND (
+              ${partnerMotionPredicatesSql.isPartnerInfluenced}
+              OR ${partnerMotionPredicatesSql.isPartnerSourced}
+            )
             AND o.close_date IS NOT NULL
             AND o.close_date >= qp.period_start
             AND o.close_date <= qp.period_end
@@ -291,7 +278,7 @@ export async function loadChannelPartnersExecutive(args: {
       ),
       channel_deals AS (
         SELECT
-          (${channelTabMotionCaseSql("o")})::text AS motion,
+          (${partnerMotionCaseSql("o")})::text AS motion,
           COALESCE(o.amount, 0)::float8 AS amount,
           (${crmBucketCaseSql("o")}) AS crm_bucket
         FROM opportunities o
@@ -383,6 +370,10 @@ export async function loadChannelPartnersExecutive(args: {
         WHERE o.org_id = $1
           AND o.partner_name IS NOT NULL
           AND btrim(o.partner_name) <> ''
+          AND (
+            ${partnerMotionPredicatesSql.isPartnerInfluenced}
+            OR ${partnerMotionPredicatesSql.isPartnerSourced}
+          )
           AND o.close_date IS NOT NULL
           AND o.close_date >= qp.period_start
           AND o.close_date <= qp.period_end
