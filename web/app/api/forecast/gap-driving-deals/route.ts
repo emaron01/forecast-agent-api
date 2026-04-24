@@ -7,6 +7,7 @@ import { resolvePublicId, zPublicId } from "../../../../lib/publicId";
 import { getForecastStageProbabilities } from "../../../../lib/forecastStageProbabilities";
 import { computeCommitAdmission } from "../../../../lib/commitAdmission";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
+import { computeConfidence, getConfidenceInputs } from "../../../../lib/confidence";
 import { isAdmin, isChannelRole as authUserIsChannelRole, isSalesRep } from "../../../../lib/roleHelpers";
 import { getChannelTerritoryRepIds } from "../../../../lib/channelTerritoryScope";
 import { crmBucketCaseSql } from "../../../../lib/crmBucketCaseSql";
@@ -178,10 +179,19 @@ type DealRow = {
   process_confidence: string | null;
   timing_confidence: string | null;
   budget_confidence: string | null;
+  pain_evidence_strength: string | null;
+  metrics_evidence_strength: string | null;
+  champion_evidence_strength: string | null;
+  eb_evidence_strength: string | null;
+  criteria_evidence_strength: string | null;
+  competition_evidence_strength: string | null;
   paper_evidence_strength: string | null;
   process_evidence_strength: string | null;
   timing_evidence_strength: string | null;
   budget_evidence_strength: string | null;
+  health_score_source: string | null;
+  audit_details: any | null;
+  updated_at: string | null;
 };
 
 function bucketLabel(b: DealRow["crm_bucket"]) {
@@ -346,14 +356,14 @@ function buildMeddpiccCategories(deal: DealRow, labels: ScoreLabelMap): Meddpicc
   };
 
   return [
-    { key: "pain", score: deal.pain_score, score_label: scoreLabel("pain", deal.pain_score), tip: cleanText(deal.pain_tip), evidence: cleanText(deal.pain_summary) },
-    { key: "metrics", score: deal.metrics_score, score_label: scoreLabel("metrics", deal.metrics_score), tip: cleanText(deal.metrics_tip), evidence: cleanText(deal.metrics_summary) },
-    { key: "champion", score: deal.champion_score, score_label: scoreLabel("champion", deal.champion_score), tip: cleanText(deal.champion_tip), evidence: cleanText(deal.champion_summary) },
-    { key: "criteria", score: deal.criteria_score, score_label: scoreLabel("criteria", deal.criteria_score), tip: cleanText(deal.criteria_tip), evidence: cleanText(deal.criteria_summary) },
-    { key: "competition", score: deal.competition_score, score_label: scoreLabel("competition", deal.competition_score), tip: cleanText(deal.competition_tip), evidence: cleanText(deal.competition_summary) },
+    withConf("pain", { key: "pain", score: deal.pain_score, score_label: scoreLabel("pain", deal.pain_score), tip: cleanText(deal.pain_tip), evidence: cleanText(deal.pain_summary) }),
+    withConf("metrics", { key: "metrics", score: deal.metrics_score, score_label: scoreLabel("metrics", deal.metrics_score), tip: cleanText(deal.metrics_tip), evidence: cleanText(deal.metrics_summary) }),
+    withConf("champion", { key: "champion", score: deal.champion_score, score_label: scoreLabel("champion", deal.champion_score), tip: cleanText(deal.champion_tip), evidence: cleanText(deal.champion_summary) }),
+    withConf("criteria", { key: "criteria", score: deal.criteria_score, score_label: scoreLabel("criteria", deal.criteria_score), tip: cleanText(deal.criteria_tip), evidence: cleanText(deal.criteria_summary) }),
+    withConf("competition", { key: "competition", score: deal.competition_score, score_label: scoreLabel("competition", deal.competition_score), tip: cleanText(deal.competition_tip), evidence: cleanText(deal.competition_summary) }),
     withConf("timing", { key: "timing", score: deal.timing_score, score_label: scoreLabel("timing", deal.timing_score), tip: cleanText(deal.timing_tip), evidence: cleanText(deal.timing_summary) }),
     withConf("budget", { key: "budget", score: deal.budget_score, score_label: scoreLabel("budget", deal.budget_score), tip: cleanText(deal.budget_tip), evidence: cleanText(deal.budget_summary) }),
-    { key: "economic_buyer", score: deal.eb_score, score_label: scoreLabel("economic_buyer", deal.eb_score), tip: cleanText(deal.eb_tip), evidence: cleanText(deal.eb_summary) },
+    withConf("economic_buyer", { key: "economic_buyer", score: deal.eb_score, score_label: scoreLabel("economic_buyer", deal.eb_score), tip: cleanText(deal.eb_tip), evidence: cleanText(deal.eb_summary) }),
     withConf("process", { key: "process", score: deal.process_score, score_label: scoreLabel("process", deal.process_score), tip: cleanText(deal.process_tip), evidence: cleanText(deal.process_summary) }),
     withConf("paper", { key: "paper", score: deal.paper_score, score_label: scoreLabel("paper", deal.paper_score), tip: cleanText(deal.paper_tip), evidence: cleanText(deal.paper_summary) }),
   ];
@@ -733,7 +743,10 @@ export async function GET(req: Request) {
           o.pain_tip, o.metrics_tip, o.champion_tip, o.eb_tip, o.paper_tip, o.process_tip,
           o.criteria_tip, o.competition_tip, o.timing_tip, o.budget_tip,
           o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
+          o.pain_evidence_strength, o.metrics_evidence_strength, o.champion_evidence_strength, o.eb_evidence_strength,
+          o.criteria_evidence_strength, o.competition_evidence_strength,
           o.paper_evidence_strength, o.process_evidence_strength, o.timing_evidence_strength, o.budget_evidence_strength,
+          o.health_score_source, o.audit_details, o.updated_at,
           lower(
             regexp_replace(
               COALESCE(NULLIF(btrim(o.forecast_stage), ''), '') || ' ' || COALESCE(NULLIF(btrim(o.sales_stage), ''), ''),
@@ -866,7 +879,10 @@ export async function GET(req: Request) {
         pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
         criteria_tip, competition_tip, timing_tip, budget_tip,
         paper_confidence, process_confidence, timing_confidence, budget_confidence,
-        paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
+        pain_evidence_strength, metrics_evidence_strength, champion_evidence_strength, eb_evidence_strength,
+        criteria_evidence_strength, competition_evidence_strength,
+        paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength,
+        health_score_source, audit_details, updated_at
       FROM modded
       WHERE (NOT $9::boolean OR suppression IS TRUE)
         AND (
@@ -1076,7 +1092,10 @@ export async function GET(req: Request) {
           pain_tip, metrics_tip, champion_tip, eb_tip, paper_tip, process_tip,
           criteria_tip, competition_tip, timing_tip, budget_tip,
           paper_confidence, process_confidence, timing_confidence, budget_confidence,
-          paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength
+          pain_evidence_strength, metrics_evidence_strength, champion_evidence_strength, eb_evidence_strength,
+          criteria_evidence_strength, competition_evidence_strength,
+          paper_evidence_strength, process_evidence_strength, timing_evidence_strength, budget_evidence_strength,
+          health_score_source, audit_details, updated_at
         FROM open_only
         WHERE (NOT $9::boolean OR FALSE)
           AND (
@@ -1197,6 +1216,8 @@ export async function GET(req: Request) {
       /** Gate categories needing attention (paper, process, timing, budget) for deal review anchor */
       commit_missing_categories?: string[];
       _commit_high_conf_count?: number;
+      confidence_band?: "high" | "medium" | "low" | null;
+      confidence_summary?: string | null;
     };
 
     const enriched: DealOut[] = deals.map((d) => {
@@ -1209,6 +1230,13 @@ export async function GET(req: Request) {
       const riskFlags = extractRiskFlags(d, labels);
       const coaching = uniqueNonEmpty(riskFlags.map((r) => r.tip));
       const categories = buildMeddpiccCategories(d, labels);
+      const confidenceInputs = getConfidenceInputs(d as unknown as Record<string, unknown>);
+      const confidence = computeConfidence({
+        opportunity: d as unknown as Record<string, unknown>,
+        source: confidenceInputs.source,
+        commentIngestionId: confidenceInputs.commentIngestionId,
+        now: new Date(),
+      });
 
       const aiForecast = computeAiForecastFromHealthScore({
         healthScore: d.health_score,
@@ -1315,6 +1343,8 @@ export async function GET(req: Request) {
         risk_flags: riskFlags,
         coaching_insights: coaching,
         _commit_high_conf_count: applicable ? highConfCount : undefined,
+        confidence_band: confidence.confidence_band,
+        confidence_summary: confidence.confidence_summary,
         ...commitAdmissionOut,
       };
     });

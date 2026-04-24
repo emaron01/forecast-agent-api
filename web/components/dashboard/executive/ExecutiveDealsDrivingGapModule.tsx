@@ -35,6 +35,7 @@ type MeddpiccEntry = {
   score_label?: string;
   tip?: string | null;
   evidence?: string | null;
+  evidence_strength?: string | null;
 };
 
 export type ExecutiveGapDeal = {
@@ -58,6 +59,8 @@ export type ExecutiveGapDeal = {
   verdict_note?: string | null;
   commit_whats_missing?: string | null;
   commit_missing_categories?: string[];
+  confidence_band?: "high" | "medium" | "low" | null;
+  confidence_summary?: string | null;
 };
 
 function fmtMoney(n: any) {
@@ -127,6 +130,44 @@ function riskPillClass(tone: "high" | "medium" | "low" | "muted") {
   if (tone === "medium") return "border-[#F1C40F]/40 bg-[#F1C40F]/10 text-[#F1C40F]";
   if (tone === "low") return "border-[#2ECC71]/40 bg-[#2ECC71]/10 text-[#2ECC71]";
   return "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+}
+
+function confidencePillClass(band: "high" | "medium" | "low" | null | undefined) {
+  if (band === "high") return "border-[#2ECC71]/50 bg-[#2ECC71]/10 text-[#2ECC71]";
+  if (band === "medium") return "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#F1C40F]";
+  if (band === "low") return "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]";
+  return "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
+}
+
+function admissionPillMeta(status: ExecutiveGapDeal["commit_admission_status"]) {
+  if (status === "admitted") {
+    return {
+      label: "In Forecast",
+      className: "border-[#2ECC71]/50 bg-[#2ECC71]/10 text-[#2ECC71]",
+    };
+  }
+  if (status === "needs_review") {
+    return {
+      label: "Needs Review",
+      className: "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#F1C40F]",
+    };
+  }
+  if (status === "not_admitted") {
+    return {
+      label: "Not Admitted to Forecast",
+      className: "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]",
+    };
+  }
+  return null;
+}
+
+function evidenceStrengthLabel(value: string | null | undefined) {
+  const s = String(value || "").trim().toLowerCase();
+  if (s === "explicit_verified") return "Explicit Verified";
+  if (s === "credible_indirect") return "Credible Indirect";
+  if (s === "vague_rep_assertion") return "Rep Assertion";
+  if (s === "unknown_missing") return "Unknown / Missing";
+  return "Evidence pending";
 }
 
 function dealTitle(d: ExecutiveGapDeal) {
@@ -271,6 +312,12 @@ export function ExecutiveDealsDrivingGapModule(props: {
                 (d.crm_stage?.bucket === "commit" || d.ai_verdict_stage === "Commit") &&
                 (!!d.commit_whats_missing || !!d.verdict_note || admissionReasons.length > 0);
               const admissionOpen = !!expandedAdmission[id];
+              const admissionMeta = admissionPillMeta(d.commit_admission_status);
+              const admissionEvidenceCats = (d.meddpicc_tb || []).filter((c) => {
+                const score = Number(c.score);
+                const hasEvidence = !!String(c.evidence || c.evidence_strength || "").trim();
+                return Number.isFinite(score) && score <= 2 && hasEvidence;
+              });
 
               const detailsId = `exec-gap-deal:${id}`;
 
@@ -395,11 +442,24 @@ export function ExecutiveDealsDrivingGapModule(props: {
                               className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
                               aria-expanded={admissionOpen}
                             >
-                              <div>
-                                <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Commit admission details</div>
-                                <div className="mt-0.5 text-sm text-[color:var(--sf-text-primary)]">
-                                  {d.commit_whats_missing || d.verdict_note || "View reasons"}
-                                </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {d.confidence_band ? (
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${confidencePillClass(d.confidence_band)}`}
+                                    title={d.confidence_summary || undefined}
+                                  >
+                                    Confidence {String(d.confidence_band).charAt(0).toUpperCase() + String(d.confidence_band).slice(1)}
+                                  </span>
+                                ) : null}
+                                {admissionMeta ? (
+                                  <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${admissionMeta.className}`}>
+                                    {admissionMeta.label}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2.5 py-0.5 text-xs font-semibold text-[color:var(--sf-text-secondary)]">
+                                    Commit Review
+                                  </span>
+                                )}
                               </div>
                               <span className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">
                                 {admissionOpen ? "Hide" : "Show"}
@@ -407,24 +467,44 @@ export function ExecutiveDealsDrivingGapModule(props: {
                             </button>
                             {admissionOpen ? (
                               <div className="border-t border-[color:var(--sf-border)] px-3 py-3">
-                                {d.verdict_note ? (
-                                  <div className="text-sm text-[color:var(--sf-text-primary)]">{d.verdict_note}</div>
-                                ) : null}
-                                {d.commit_whats_missing ? (
-                                  <div className={d.verdict_note ? "mt-2 text-sm text-[color:var(--sf-text-primary)]" : "text-sm text-[color:var(--sf-text-primary)]"}>
-                                    {d.commit_whats_missing}
-                                  </div>
-                                ) : null}
-                                {admissionReasons.length ? (
-                                  <div className={d.verdict_note || d.commit_whats_missing ? "mt-2" : ""}>
-                                    <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Reasons</div>
-                                    <ul className="mt-1 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
-                                      {admissionReasons.map((reason) => (
-                                        <li key={reason}>{reason}</li>
+                                {admissionEvidenceCats.length ? (
+                                  <div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {admissionEvidenceCats.map((cat) => (
+                                        <span
+                                          key={`admission:${id}:${cat.key}`}
+                                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${scoreBadgeClass(cat.score)}`}
+                                        >
+                                          {chipLabel(String(cat.key))} · {evidenceStrengthLabel(cat.evidence_strength)}
+                                        </span>
                                       ))}
-                                    </ul>
+                                    </div>
+                                    <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
+                                      click the category above to review evidence
+                                    </div>
                                   </div>
-                                ) : null}
+                                ) : (
+                                  <>
+                                    {d.verdict_note ? (
+                                      <div className="text-sm text-[color:var(--sf-text-primary)]">{d.verdict_note}</div>
+                                    ) : null}
+                                    {d.commit_whats_missing ? (
+                                      <div className={d.verdict_note ? "mt-2 text-sm text-[color:var(--sf-text-primary)]" : "text-sm text-[color:var(--sf-text-primary)]"}>
+                                        {d.commit_whats_missing}
+                                      </div>
+                                    ) : null}
+                                    {admissionReasons.length ? (
+                                      <div className={d.verdict_note || d.commit_whats_missing ? "mt-2" : ""}>
+                                        <div className="text-xs font-semibold text-[color:var(--sf-text-secondary)]">Reasons</div>
+                                        <ul className="mt-1 list-disc pl-5 text-sm text-[color:var(--sf-text-primary)]">
+                                          {admissionReasons.map((reason) => (
+                                            <li key={reason}>{reason}</li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                  </>
+                                )}
                               </div>
                             ) : null}
                           </div>
