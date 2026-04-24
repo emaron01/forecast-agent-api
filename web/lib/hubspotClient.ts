@@ -1092,11 +1092,16 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
       dealPropsRes.data.map((prop) => [String(prop.name || "").trim(), prop] as const)
     );
 
-    function formatHealthScoreForHubSpot(rawScore: number, targetProperty: string): number {
-      const roundedPercent = Math.round((rawScore / 30) * 100);
+    function targetPropertyUsesPercentageFormat(targetProperty: string): boolean {
+      if (targetProperty === "sf_health_initial" || targetProperty === "sf_health_current") return true;
       const target = dealPropByName.get(targetProperty);
       const displayFormat = String(target?.displayFormat || "").trim().toLowerCase();
-      return displayFormat === "percentage" ? roundedPercent / 100 : roundedPercent;
+      return displayFormat === "percentage";
+    }
+
+    function formatHealthScoreForHubSpot(rawScore: number, targetProperty: string): number {
+      const roundedPercent = Math.round((rawScore / 30) * 100);
+      return targetPropertyUsesPercentageFormat(targetProperty) ? roundedPercent / 100 : roundedPercent;
     }
 
     const props: Record<string, string | number> = {};
@@ -1120,7 +1125,16 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
         );
         if (currentRes.ok === false) return { ok: false, error: currentRes.error };
         const existingValue = currentRes.json?.properties?.[targetProperty];
-        if (existingValue != null && String(existingValue).trim() !== "") continue;
+        if (existingValue != null && String(existingValue).trim() !== "") {
+          const existingNumeric = Number(existingValue);
+          if (
+            !targetPropertyUsesPercentageFormat(targetProperty) ||
+            !Number.isFinite(existingNumeric) ||
+            existingNumeric <= 1
+          ) {
+            continue;
+          }
+        }
         const rawBaselineScore = Number(opp.baseline_health_score || 0) || 0;
         props[targetProperty] = formatHealthScoreForHubSpot(rawBaselineScore, targetProperty);
         continue;
