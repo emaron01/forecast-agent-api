@@ -62,7 +62,7 @@ const CHANNEL_DASHBOARD_LEADER_TABS: ExecTabKey[] = [
   "reports",
 ];
 
-const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "channel_partners"];
+const CHANNEL_REP_DASHBOARD_TABS: ExecTabKey[] = ["sales_opportunities", "top_deals", "channel_partners"];
 
 type ChannelLostDealRow = {
   id: string;
@@ -1245,6 +1245,7 @@ export default async function ChannelDashboardPage({
               allowedTabKeys={CHANNEL_REP_DASHBOARD_TABS}
               tabLabels={{
                 sales_opportunities: "Sales Opportunities",
+                top_deals: "Won / Lost",
                 channel_partners: "Channel Partners",
               }}
               setDefaultTab={setExecDefaultTabAction}
@@ -1253,6 +1254,14 @@ export default async function ChannelDashboardPage({
                   <div className="-mx-4 -mt-4">
                     <SimpleForecastDashboardClient {...salesOpportunitiesSimpleProps} />
                   </div>
+                ),
+                top_deals: (
+                  <ChannelTopPartnerDealsTablesClient
+                    won={topPartnerWon}
+                    lost={topPartnerLost}
+                    periodStart={selectedPeriod?.period_start}
+                    periodEnd={selectedPeriod?.period_end}
+                  />
                 ),
                 channel_partners: (
                   <ChannelTabPanelClient
