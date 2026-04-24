@@ -74,7 +74,7 @@ export function computeConfidence(args: {
   else if (daysSinceUpdate <= 30) recencyPoints = 2;
 
   const rawSource = String(source ?? "").trim().toLowerCase();
-  const sourceMultiplier = rawSource === "rep_review" ? 1.0 : 0.5;
+  const sourceMultiplier = rawSource === "rep_review" ? 1.0 : 0.8;
 
   const closeDate = opp.close_date ? new Date(opp.close_date as string) : null;
   let staleNearClose = false;
