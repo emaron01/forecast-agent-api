@@ -143,6 +143,7 @@ export async function POST(req: Request) {
       );
     }
     const repName = repNames[0] || "Rep";
+    const repId = Number((deals[0] as any)?.rep_id ?? 0);
 
     // Load score definitions for rubric text.
     const defsRes = await pool
@@ -177,9 +178,61 @@ export async function POST(req: Request) {
       loadConversationalRules(),
     ]);
     const composedText = scoring.text + "\n\n---\n\n" + conversational.text;
+    let orgName = "our company";
+    try {
+      const orgRows = await pool.query(
+        "SELECT name FROM organizations WHERE id = $1",
+        [orgId]
+      );
+      const raw = orgRows?.rows?.[0]?.name;
+      if (raw != null && String(raw).trim()) orgName = String(raw).trim();
+    } catch {
+      // keep fallback
+    }
+    const masterPromptResolved = composedText.replace(/\{\{org_name\}\}/g, orgName);
+
+    // Fetch rep calibration profile — silent context, never spoken
+    let calibrationBlock = "";
+    try {
+      if (Number.isFinite(repId) && repId > 0) {
+        const { rows: calibRows } = await pool.query<{
+          category: string;
+          avg_score: string;
+          sample_size: string;
+          regression_count: string;
+          calibration_note: string;
+        }>(
+          `SELECT category, avg_score, sample_size,
+                  regression_count, calibration_note
+           FROM public.get_rep_calibration_profile($1, $2)
+           WHERE calibration_note != 'insufficient_data'`,
+          [orgId, repId]
+        );
+        if (calibRows.length > 0) {
+          const lines = calibRows.map((r) =>
+            `- ${r.category}: avg score ${r.avg_score} ` +
+            `(${r.sample_size} samples, ` +
+            `${r.regression_count} regressions) — ${r.calibration_note}`
+          );
+          calibrationBlock = [
+            "\n\n---\n\nREP CALIBRATION (SILENT — never speak this,",
+            "never reference this to the rep):",
+            "Historical scoring pattern for this rep across",
+            "closed and regressed deals. Use to calibrate",
+            "follow-up skepticism — do not override evidence",
+            "scoring rules.",
+            ...lines,
+          ].join("\n");
+        }
+      }
+    } catch {
+      // Calibration is best-effort — never block a session on failure
+    }
+
+    const masterPromptWithCalibration = masterPromptResolved + calibrationBlock;
     const mp = {
-      text: composedText,
-      sha256: promptHash(composedText),
+      text: masterPromptWithCalibration,
+      sha256: promptHash(masterPromptWithCalibration),
       loadedAt: Date.now(),
       sourcePath: "composed:scoring+conversational",
     };
