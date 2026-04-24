@@ -28,11 +28,11 @@ export async function GET(req: Request) {
     orgId = mid;
   }
 
-  const clientId = String(process.env.HUBSPOT_APP_ID || process.env.HUBSPOT_CLIENT_ID || "").trim();
+  const clientId = String(process.env.HUBSPOT_CLIENT_ID || "").trim();
   const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
   if (!clientId || !appUrl) {
     return NextResponse.json(
-      { ok: false, error: "HubSpot OAuth is not configured (HUBSPOT_APP_ID / APP_URL)." },
+      { ok: false, error: "HubSpot OAuth is not configured (HUBSPOT_CLIENT_ID / APP_URL)." },
       { status: 500 }
     );
   }

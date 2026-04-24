@@ -70,7 +70,7 @@ function sessionSecret(): string {
 }
 
 function hubspotOAuthClientId(): string {
-  return String(process.env.HUBSPOT_APP_ID || process.env.HUBSPOT_CLIENT_ID || "").trim();
+  return String(process.env.HUBSPOT_CLIENT_ID || "").trim();
 }
 
 function hubspotOAuthClientSecret(): string {
