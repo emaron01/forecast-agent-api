@@ -218,7 +218,7 @@ export function DealCoachingCard(props: DealCoachingCardProps) {
               <span className={confidenceMeta.className}>{confidenceMeta.label}</span>
             </span>
             {partnerLabel ? (
-              <span>
+              <span className="basis-full">
                 · Partner Name <span className="font-semibold text-[color:var(--sf-text-primary)]">{partnerLabel}</span>
               </span>
             ) : null}
