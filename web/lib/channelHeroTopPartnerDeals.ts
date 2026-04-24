@@ -34,7 +34,7 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
   orgId: number;
   quotaPeriodId: string;
   outcome: "won" | "lost";
-  limit: number;
+  limit?: number | null;
   dateStart?: string | null;
   dateEnd?: string | null;
   scopeRepIds: number[];
@@ -49,6 +49,7 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
   const repLen = scopeRep.length;
   const partnerLen = scopePn.length;
   if (repLen === 0 && partnerLen === 0) return [];
+  const applyLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0;
   const { rows } = await pool.query<ChannelHeroTopPartnerDealRow>(
     `
     WITH qp AS (
@@ -100,13 +101,13 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
     FROM bucketed o
     WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
-    LIMIT $4
+    ${applyLimit ? "LIMIT $4" : ""}
     `,
     [
       args.orgId,
       args.quotaPeriodId,
       wantWon,
-      args.limit,
+      applyLimit ? args.limit : null,
       args.dateStart || null,
       args.dateEnd || null,
       scopeRep,

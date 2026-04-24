@@ -1373,7 +1373,6 @@ export default async function ExecutiveDashboardPage({
   async function listTopDeals(args: {
     orgId: number;
     outcome: "won" | "lost";
-    limit: number;
     dateStart?: string | null;
     dateEnd?: string | null;
     repIds: number[] | null;
@@ -1416,9 +1415,8 @@ export default async function ExecutiveDashboardPage({
       LEFT JOIN reps r ON r.id = o.rep_id
       WHERE (CASE WHEN $2::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
       ORDER BY amount DESC NULLS LAST, o.id DESC
-      LIMIT $7
       `,
-      [args.orgId, wantWon, args.dateStart || null, args.dateEnd || null, args.repIds || [], useRepFilter, args.limit]
+      [args.orgId, wantWon, args.dateStart || null, args.dateEnd || null, args.repIds || [], useRepFilter]
     );
     return rows || [];
   }
@@ -1427,7 +1425,7 @@ export default async function ExecutiveDashboardPage({
     orgId: number;
     quotaPeriodId: string;
     outcome: "won" | "lost";
-    limit: number;
+    limit?: number | null;
     dateStart?: string | null;
     dateEnd?: string | null;
     repIds: number[] | null;
@@ -1436,6 +1434,7 @@ export default async function ExecutiveDashboardPage({
     const wantWon = args.outcome === "won";
     const useRepFilter = !!(args.repIds && args.repIds.length);
     const usePartnerFilter = !!(args.partnerNames && args.partnerNames.length);
+    const applyLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0;
     if (!useRepFilter && !usePartnerFilter) return [];
     const { rows } = await pool.query<TopPartnerDealRow>(
       `
@@ -1489,13 +1488,13 @@ export default async function ExecutiveDashboardPage({
     FROM bucketed o
     WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
-    LIMIT $4
+    ${applyLimit ? "LIMIT $4" : ""}
     `,
       [
         args.orgId,
         args.quotaPeriodId,
         wantWon,
-        args.limit,
+        applyLimit ? args.limit : null,
         args.dateStart || null,
         args.dateEnd || null,
         args.repIds || [],
@@ -1532,7 +1531,6 @@ export default async function ExecutiveDashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           outcome: "won",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: executiveChannelTerritoryRepIds,
@@ -1542,7 +1540,6 @@ export default async function ExecutiveDashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedPeriodId,
           outcome: "lost",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: executiveChannelTerritoryRepIds,
@@ -1574,7 +1571,6 @@ export default async function ExecutiveDashboardPage({
         listTopDeals({
           orgId: ctx.user.org_id,
           outcome: "won",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,
@@ -1582,7 +1578,6 @@ export default async function ExecutiveDashboardPage({
         listTopDeals({
           orgId: ctx.user.org_id,
           outcome: "lost",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           repIds: visibleRepIds,

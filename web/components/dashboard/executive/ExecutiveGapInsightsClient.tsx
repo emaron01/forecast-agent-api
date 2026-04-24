@@ -3811,7 +3811,7 @@ export function ExecutiveGapInsightsClient(props: {
             <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top partner deals won (top 10 by revenue)</h2>
+                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Won</h2>
                   <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                     Period: <span className="font-mono text-xs">{dateOnly(activePeriod?.period_start)}</span> →{" "}
                     <span className="font-mono text-xs">{dateOnly(activePeriod?.period_end)}</span>
@@ -3909,7 +3909,7 @@ export function ExecutiveGapInsightsClient(props: {
             <section className="mt-5 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+                  <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss</h2>
                   <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
                     Period: <span className="font-mono text-xs">{dateOnly(activePeriod?.period_start)}</span> →{" "}
                     <span className="font-mono text-xs">{dateOnly(activePeriod?.period_end)}</span>

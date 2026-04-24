@@ -16,6 +16,7 @@ import { normalizeExecTab, resolveDashboardTab, type ExecTabKey } from "../actio
 import { setExecDefaultTabAction } from "../actions/execTabPreferences";
 import { ScopedDashboardTabsClient } from "../components/dashboard/ScopedDashboardTabsClient";
 import { ChannelTabPanelClient } from "../components/dashboard/ChannelTabPanelClient";
+import { Role3TopDealsTabClient } from "../components/dashboard/Role3TopDealsTabClient";
 import { loadChannelLedFedRows, loadChannelPartnerHeroProps } from "../../lib/channelPartnerHeroData";
 import { loadChannelPartnersExecutive } from "../../lib/channelPartnersExecutive";
 import { listTopPartnerDealsChannelHeroScope } from "../../lib/channelHeroTopPartnerDeals";
@@ -30,6 +31,69 @@ type WeakestDealRow = {
   forecast_stage: string | null;
   weakest_category: string | null;
 };
+
+type Role3TopDealRow = {
+  opportunity_public_id: string;
+  account_name: string | null;
+  opportunity_name: string | null;
+  partner_name: string | null;
+  product: string | null;
+  amount: number;
+  create_date: string | null;
+  close_date: string | null;
+  baseline_health_score: number | null;
+  health_score: number | null;
+};
+
+async function listRole3TopDeals(args: {
+  orgId: number;
+  repId: number;
+  outcome: "won" | "lost";
+  dateStart?: string | null;
+  dateEnd?: string | null;
+}): Promise<Role3TopDealRow[]> {
+  const wantWon = args.outcome === "won";
+  const { rows } = await pool.query<Role3TopDealRow>(
+    `
+    WITH bucketed AS (
+      SELECT
+        o.*,
+        (${crmBucketCaseSql("o")}) AS crm_bucket
+      FROM opportunities o
+      LEFT JOIN org_stage_mappings stm
+        ON stm.org_id = o.org_id
+       AND stm.field = 'stage'
+       AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+      LEFT JOIN org_stage_mappings fcm
+        ON fcm.org_id = o.org_id
+       AND fcm.field = 'forecast_category'
+       AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+      WHERE o.org_id = $1::bigint
+        AND o.rep_id = $2::bigint
+        AND o.close_date IS NOT NULL
+        AND o.close_date::date >= COALESCE($3::date, o.close_date::date)
+        AND o.close_date::date <= COALESCE($4::date, o.close_date::date)
+    )
+    SELECT
+      o.public_id::text AS opportunity_public_id,
+      o.account_name,
+      o.opportunity_name,
+      NULLIF(btrim(o.partner_name), '') AS partner_name,
+      o.product,
+      COALESCE(o.amount, 0)::float8 AS amount,
+      o.create_date::timestamptz::text AS create_date,
+      o.close_date::date::text AS close_date,
+      o.baseline_health_score::float8 AS baseline_health_score,
+      o.health_score::float8 AS health_score
+    FROM bucketed o
+    WHERE (CASE WHEN $5::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
+    ORDER BY amount DESC NULLS LAST, o.id DESC
+    `
+    ,
+    [args.orgId, args.repId, args.dateStart || null, args.dateEnd || null, wantWon]
+  );
+  return rows ?? [];
+}
 
 function periodToOption(p: { id: string; fiscal_year: string; fiscal_quarter: string; period_name: string; period_start: string; period_end: string }) {
   const q = Number.parseInt(String(p.fiscal_quarter || "").trim(), 10);
@@ -203,6 +267,34 @@ export default async function DashboardPage({
   const fiscalQuarter = String(selectedPeriod?.fiscal_quarter || "").trim() || "—";
   const quotaPeriodId = String(summary.selectedQuotaPeriodId ?? "").trim();
   const repNameForBrief = defaultRepName || displayName;
+  let role3TopDealsWon: Role3TopDealRow[] = [];
+  let role3TopDealsLost: Role3TopDealRow[] = [];
+
+  if (isRepLevel(ctx.user.hierarchy_level) && repId != null && selectedPeriod) {
+    try {
+      const [won, lost] = await Promise.all([
+        listRole3TopDeals({
+          orgId: ctx.user.org_id,
+          repId,
+          outcome: "won",
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+        }),
+        listRole3TopDeals({
+          orgId: ctx.user.org_id,
+          repId,
+          outcome: "lost",
+          dateStart: selectedPeriod.period_start,
+          dateEnd: selectedPeriod.period_end,
+        }),
+      ]);
+      role3TopDealsWon = won ?? [];
+      role3TopDealsLost = lost ?? [];
+    } catch {
+      role3TopDealsWon = [];
+      role3TopDealsLost = [];
+    }
+  }
 
   // Channel Partners tab for Sales Reps (level 3):
   // Gives reps evidence-based visibility into which partners actually perform
@@ -241,7 +333,6 @@ export default async function DashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedQuotaPeriodIdStr,
           outcome: "won",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           scopeRepIds: [repId],
@@ -252,7 +343,6 @@ export default async function DashboardPage({
           orgId: ctx.user.org_id,
           quotaPeriodId: selectedQuotaPeriodIdStr,
           outcome: "lost",
-          limit: 10,
           dateStart: selectedPeriod.period_start,
           dateEnd: selectedPeriod.period_end,
           scopeRepIds: [repId],
@@ -348,6 +438,7 @@ export default async function DashboardPage({
   const repDashboardAllowed: ExecTabKey[] = [
     "overview",
     "sales_opportunities",
+    ...(isRepLevel(ctx.user.hierarchy_level) ? (["top_deals"] as ExecTabKey[]) : []),
     ...(isRepLevel(ctx.user.hierarchy_level) ? (["channel_partners"] as ExecTabKey[]) : []),
   ];
 
@@ -431,6 +522,7 @@ export default async function DashboardPage({
             tabLabels={{
               overview: "Overview",
               sales_opportunities: "Sales Opportunities",
+              top_deals: "Won / Lost",
               channel_partners: "Channel Partners",
             }}
             setDefaultTab={setExecDefaultTabAction}
@@ -456,6 +548,17 @@ export default async function DashboardPage({
                     defaultQuotaPeriodId={summary.selectedQuotaPeriodId}
                   />
                 </div>
+              ),
+              top_deals: (
+                <Role3TopDealsTabClient
+                  topDealsWon={role3TopDealsWon}
+                  topDealsLost={role3TopDealsLost}
+                  activePeriod={
+                    selectedPeriod
+                      ? { period_start: selectedPeriod.period_start, period_end: selectedPeriod.period_end }
+                      : null
+                  }
+                />
               ),
               channel_partners: (
                 <ChannelTabPanelClient

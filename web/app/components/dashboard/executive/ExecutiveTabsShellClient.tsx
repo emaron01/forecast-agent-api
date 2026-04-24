@@ -32,7 +32,7 @@ const TAB_LABELS: Record<ExecTabKey, string> = {
   channel: "Channel",
   revenue_mix: "Revenue Mix",
   revenue_intelligence: "Revenue Intelligence",
-  top_deals: "Top Deals",
+  top_deals: "Won / Lost",
   report_builder: "Report Builder",
   reports: "Reports",
 };
@@ -56,9 +56,9 @@ const CHANNEL_COACHING_TAB_EXCLUDED_LEVELS = new Set([6, 7, 8]);
 
 const REPORT_LINKS = [
   {
-    title: "Top Deals",
+    title: "Won / Lost",
     href: "/analytics/quotas/executive",
-    description: "Top 10 won and closed loss deals for the selected quarter, across all motions",
+    description: "Won and closed loss deals for the selected quarter, across all motions",
   },
   {
     title: "Top Partners",
@@ -530,7 +530,7 @@ function TopDealsTabContent(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Top Deals Won (top 10 by revenue)</h2>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Won</h2>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Period: <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_start)}</span> →{" "}
               <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_end)}</span>
@@ -640,7 +640,7 @@ function TopDealsTabContent(props: {
       <section className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss (top 10 by revenue)</h2>
+            <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">Closed Loss</h2>
             <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
               Period: <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_start)}</span> →{" "}
               <span className="font-mono text-xs">{topDealsDateOnly(ap?.period_end)}</span>
