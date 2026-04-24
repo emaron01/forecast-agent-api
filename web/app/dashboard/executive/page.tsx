@@ -1637,6 +1637,14 @@ export default async function ExecutiveDashboardPage({
       prevPeriodId,
       requirePartnerName: false,
     });
+    console.log(
+      "teamManagerRows",
+      JSON.stringify(teamResult.managerRows.map((r) => ({ id: r.manager_id, name: r.manager_name })))
+    );
+    console.log(
+      "teamRepRows",
+      JSON.stringify(teamResult.repRows.map((r) => ({ id: r.rep_id, name: r.rep_name, manager: r.manager_id })))
+    );
     teamRepRows = teamResult.repRows;
     teamManagerRows = teamResult.managerRows;
 
