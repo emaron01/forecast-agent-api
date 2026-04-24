@@ -2363,7 +2363,7 @@ export function DealReviewClient(props: {
             </div>
           </div>
 
-          {scoring ? (
+          {false && scoring ? (
             <div className="box" style={{ marginTop: 12 }}>
               <h3>Confidence</h3>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
