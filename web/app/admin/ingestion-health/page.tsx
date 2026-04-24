@@ -41,8 +41,9 @@ export default async function IngestionHealthPage() {
   const ctx = await requireManagerAdminOrMaster();
   if (ctx.kind === "user" && !isAdmin(ctx.user)) redirect("/admin/users");
 
-  const { rows } = await pool.query<Row>(
-    `
+  const scopedOrgId = ctx.kind === "user" ? Number(ctx.user.org_id) : null;
+
+  const query = `
     SELECT
       o.id AS org_id,
       o.name AS organization_name,
@@ -123,9 +124,12 @@ export default async function IngestionHealthPage() {
           )
       ) AS last_audit_event_at
     FROM organizations o
+    ${scopedOrgId != null ? "WHERE o.id = $1" : ""}
     ORDER BY o.id ASC
-    `
-  ).catch(() => ({ rows: [] as Row[] }));
+  `;
+
+  const params = scopedOrgId != null ? [scopedOrgId] : [];
+  const { rows } = await pool.query<Row>(query, params).catch(() => ({ rows: [] as Row[] }));
 
   const data = rows || [];
 
@@ -141,7 +145,9 @@ export default async function IngestionHealthPage() {
         </Link>
       </div>
       <p className="text-sm text-[color:var(--sf-text-secondary)]">
-        Read-only ingestion and scoring status across organizations.
+        {ctx.kind === "master"
+          ? "Read-only ingestion and scoring status across organizations."
+          : "Read-only ingestion and scoring status for your organization."}
       </p>
       <div className="overflow-x-auto rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)]">
         <table className="w-full min-w-[800px] border-collapse text-sm">
