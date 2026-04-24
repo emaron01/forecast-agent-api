@@ -43,6 +43,20 @@ Score Gating (STRICT):
 - Score 1 corresponds to Vague / Rep Assertion.
 - Score 0 corresponds to Unknown / Missing.
 
+Global Score 3 Rule (MANDATORY):
+Score 3 requires explicit, verified evidence directly stated by the
+rep — buyer confirmation, named stakeholder action, or documented
+fact.
+
+Score 3 is NEVER awarded based on:
+- Rep assertion without buyer confirmation
+- Implied or inferred evidence
+- Vague or indirect statements
+
+If evidence is credible but indirect → score 2 max.
+If evidence is vague or rep assertion only → score 1 max.
+Score 3 = explicit and verified only.
+
 If evidence does not meet the threshold for a higher score, the
 agent MUST score at the lower level (no benefit of the doubt).
 

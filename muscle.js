@@ -433,13 +433,34 @@ export async function handleFunctionCall({ toolName, args, pool }) {
     const scoreKey = `${category}_score`;
     const summaryKey = `${category}_summary`;
     const tipKey = `${category}_tip`;
+    const evidenceStrengthKey = `${category}_evidence_strength`;
+    const confidenceKey = `${category}_confidence`;
 
     const scoreVal = args?.[scoreKey];
     const scoreNum = Number(scoreVal);
     const hasScore = Number.isFinite(scoreNum);
+    const isMatthewReviewSave = args?.score_source !== "ai_notes";
 
     // Ensure tip key exists so DB column is written (can be empty string)
     if (args?.[tipKey] === undefined || args?.[tipKey] == null) args[tipKey] = "";
+
+    if (hasScore && isMatthewReviewSave) {
+      const clampedScore = Math.max(0, Math.min(3, Math.trunc(scoreNum)));
+      const scoreToEvidenceStrength = {
+        3: "explicit_verified",
+        2: "credible_indirect",
+        1: "vague_rep_assertion",
+        0: "unknown_missing",
+      };
+      const scoreToConfidence = {
+        3: "high",
+        2: "medium",
+        1: "low",
+        0: "low",
+      };
+      args[evidenceStrengthKey] = scoreToEvidenceStrength[clampedScore];
+      args[confidenceKey] = scoreToConfidence[clampedScore];
+    }
 
     if (hasScore && args?.[summaryKey] != null) {
       const rawSummary = cleanText(args[summaryKey]);
