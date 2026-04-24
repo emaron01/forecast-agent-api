@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MEDDPICC_CANONICAL } from "../../../../lib/meddpiccCanonical";
 import { dateOnly } from "../../../../lib/dateOnly";
 import { PasteNotesPanel } from "../../../../components/opportunities/PasteNotesPanel";
+import { confidencePillClassFromBand } from "../../../../lib/confidenceUi";
 
 type HandsFreeMessage = { role: "assistant" | "user" | "system"; text: string; at: number };
 
@@ -98,14 +99,6 @@ function healthPillClass(p: number | null | undefined) {
   if (n >= 80) return "ok";
   if (n >= 60) return "warn";
   return "err";
-}
-
-function confidencePillClass(band: string | null | undefined) {
-  const v = String(band || "").trim().toLowerCase();
-  if (v === "high") return "ok";
-  if (v === "medium") return "warn";
-  if (v === "low") return "err";
-  return "";
 }
 
 function displayCategoryLabel(category: string) {
@@ -2251,7 +2244,7 @@ export function DealReviewClient(props: {
               ) : null}
               {oppState?.scoring?.confidence_band ? (
                 <span
-                  className={`pill ${confidencePillClass(oppState.scoring.confidence_band)}`}
+                  className={`pill ${confidencePillClassFromBand(oppState.scoring.confidence_band)}`}
                   title={oppState.scoring.confidence_summary || undefined}
                 >
                   Confidence: <b style={{ textTransform: "capitalize" }}>{oppState.scoring.confidence_band}</b>
@@ -2293,7 +2286,7 @@ export function DealReviewClient(props: {
               ) : null}
               {oppState?.scoring?.confidence_band ? (
                 <span
-                  className={`pill ${confidencePillClass(oppState.scoring.confidence_band)}`}
+                  className={`pill ${confidencePillClassFromBand(oppState.scoring.confidence_band)}`}
                   title={oppState.scoring.confidence_summary || undefined}
                 >
                   Confidence: <b style={{ textTransform: "capitalize" }}>{oppState.scoring.confidence_band}</b>
@@ -2374,7 +2367,7 @@ export function DealReviewClient(props: {
             <div className="box" style={{ marginTop: 12 }}>
               <h3>Confidence</h3>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span className={`pill ${confidencePillClass(scoring.confidence_band)}`}>
+                <span className={`pill ${confidencePillClassFromBand(scoring.confidence_band)}`}>
                   Confidence: <b style={{ textTransform: "capitalize" }}>{scoring.confidence_band}</b>
                 </span>
                 <button

@@ -35,6 +35,7 @@ import {
   roleToHierarchyLevel,
 } from "../../../lib/roleHelpers";
 import { ChannelRepHeroCards } from "../channel/ChannelRepHeroCards";
+import { confidenceFromPct } from "../../../lib/confidenceUi";
 
 type RiskCategoryKey =
   | "pain"
@@ -341,13 +342,6 @@ function pillToneClass(tone: "good" | "warn" | "bad" | "muted") {
   if (tone === "warn") return "border-[#F1C40F]/50 bg-[#F1C40F]/12 text-[#F1C40F]";
   if (tone === "bad") return "border-[#E74C3C]/45 bg-[#E74C3C]/12 text-[#E74C3C]";
   return "border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-[color:var(--sf-text-secondary)]";
-}
-
-function confidenceFromPct(p: number | null) {
-  if (p == null || !Number.isFinite(p)) return { label: "Confidence: —", tone: "muted" as const };
-  if (p >= 1.0) return { label: "Confidence: High", tone: "good" as const };
-  if (p >= 0.9) return { label: "Confidence: Moderate Risk", tone: "warn" as const };
-  return { label: "Confidence: High Risk", tone: "bad" as const };
 }
 
 function hexToRgb(hex: string) {

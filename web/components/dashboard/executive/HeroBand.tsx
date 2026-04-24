@@ -1,3 +1,5 @@
+import { confidenceFromPct } from "../../../lib/confidenceUi";
+
 function clamp01(v: number) {
   if (v < 0) return 0;
   if (v > 1) return 1;
@@ -18,13 +20,6 @@ function fmtPct01(n: number | null) {
 function deltaTextClass(v: number) {
   if (!Number.isFinite(v) || v === 0) return "text-[color:var(--sf-text-secondary)]";
   return v > 0 ? "text-[#2ECC71]" : "text-[#E74C3C]";
-}
-
-function confidenceFromPct(p: number | null) {
-  if (p == null || !Number.isFinite(p)) return { label: "Confidence: —", tone: "muted" as const };
-  if (p >= 1.0) return { label: "Confidence: High", tone: "good" as const };
-  if (p >= 0.9) return { label: "Confidence: Moderate Risk", tone: "warn" as const };
-  return { label: "Confidence: High Risk", tone: "bad" as const };
 }
 
 export function HeroBand(props: {

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { type PartnerMotionDecisionEngine } from "../executive/PartnerMotionPerformanceSection";
 import type { ChannelPartnerHeroProps } from "../../../lib/channelPartnerHeroData";
+import { confidenceFromPct } from "../../../lib/confidenceUi";
 import {
   ExecutiveRemainingQuarterlyForecastBlock,
   type CrmHeroBucketAmounts,
@@ -61,13 +62,6 @@ function gradientColorAt(p: number) {
     }
   }
   return rgbToCss(stops[stops.length - 1].c);
-}
-
-function confidenceFromPct(p: number | null) {
-  if (p == null || !Number.isFinite(p)) return { label: "Confidence: —", tone: "muted" as const };
-  if (p >= 1.0) return { label: "Confidence: High", tone: "good" as const };
-  if (p >= 0.9) return { label: "Confidence: Moderate Risk", tone: "warn" as const };
-  return { label: "Confidence: High Risk", tone: "bad" as const };
 }
 
 function heroColor(value: number, quota: number, thresholds: [number, number] = [1.0, 0.8]): string {
