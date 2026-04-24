@@ -7,7 +7,7 @@ import { closedOutcomeFromOpportunityRow } from "../../../../../../lib/opportuni
 import { startSpan, endSpan, orgIdFromAuth } from "../../../../../../lib/perf";
 import { channelUserCanViewOpportunity } from "../../../../../../lib/dealReviewOpportunityScope";
 import { HIERARCHY, isChannelRole, isManager, isSalesRep } from "../../../../../../lib/roleHelpers";
-import { computeConfidence, type ScoreSource } from "../../../../../../lib/confidence";
+import { computeConfidence, getConfidenceInputs } from "../../../../../../lib/confidence";
 
 export const runtime = "nodejs";
 
@@ -46,14 +46,6 @@ function splitLabelEvidence(summary: any) {
     return { label, evidence };
   }
   return { label: "", evidence: s };
-}
-
-function normalizeScoreSource(value: unknown): ScoreSource {
-  const s = String(value ?? "").trim().toLowerCase();
-  if (s === "rep_review" || s === "ai_notes" || s === "manager_override" || s === "system") {
-    return s;
-  }
-  return "system";
 }
 
 /** Sales rep (3) only: own deals by rep_name match. Channel roles use channelUserCanViewOpportunity. */
@@ -192,13 +184,11 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     });
 
     const healthPercent = computeHealthPercentFromOpportunity((opportunity as any)?.health_score);
-    const persistedScoring = (opportunity as any)?.audit_details?.scoring ?? null;
+    const confidenceInputs = getConfidenceInputs(opportunity as Record<string, unknown>);
     const scoring = computeConfidence({
       opportunity: opportunity as Record<string, unknown>,
-      source: normalizeScoreSource(persistedScoring?.score_source),
-      commentIngestionId: Number.isFinite(Number(persistedScoring?.evidence?.comment_ingestion_id))
-        ? Number(persistedScoring.evidence.comment_ingestion_id)
-        : null,
+      source: confidenceInputs.source,
+      commentIngestionId: confidenceInputs.commentIngestionId,
       now: new Date(),
     });
 

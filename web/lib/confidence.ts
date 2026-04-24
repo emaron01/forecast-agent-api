@@ -23,6 +23,28 @@ function daysBetween(a: Date, b: Date): number {
   return Math.floor((b.getTime() - a.getTime()) / (24 * 60 * 60 * 1000));
 }
 
+function normalizeScoreSource(value: unknown): ScoreSource {
+  const s = String(value ?? "").trim().toLowerCase();
+  if (s === "rep_review" || s === "ai_notes" || s === "manager_override" || s === "system") {
+    return s;
+  }
+  return "system";
+}
+
+export function getConfidenceInputs(opportunity: Record<string, unknown>): {
+  source: ScoreSource;
+  commentIngestionId: number | null;
+} {
+  const opp = opportunity || {};
+  const persistedScoring = (opp as any)?.audit_details?.scoring ?? null;
+  const source = normalizeScoreSource(persistedScoring?.score_source ?? opp.health_score_source);
+  const commentIngestionId =
+    source === "ai_notes" && Number.isFinite(Number(persistedScoring?.evidence?.comment_ingestion_id))
+      ? Number(persistedScoring.evidence.comment_ingestion_id)
+      : null;
+  return { source, commentIngestionId };
+}
+
 export function computeConfidence(args: {
   opportunity: Record<string, unknown>;
   source: ScoreSource;

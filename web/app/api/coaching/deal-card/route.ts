@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getAuth } from "../../../../lib/auth";
 import { computeAiForecastFromHealthScore, toOpenStage } from "../../../../lib/aiForecast";
 import { computeCommitAdmission, isCommitAdmissionApplicable } from "../../../../lib/commitAdmission";
-import { computeConfidence, type ScoreSource } from "../../../../lib/confidence";
+import { computeConfidence, getConfidenceInputs } from "../../../../lib/confidence";
 import { isAdmin, isChannelRole, isSalesLeader } from "../../../../lib/roleHelpers";
 import { pool } from "../../../../lib/pool";
 
@@ -61,14 +61,6 @@ function uniqueNonEmpty(lines: Array<string | null | undefined>) {
 function cleanText(v: any) {
   const s = String(v ?? "").trim();
   return s ? s : null;
-}
-
-function normalizeScoreSource(value: unknown): ScoreSource {
-  const s = String(value ?? "").trim().toLowerCase();
-  if (s === "rep_review" || s === "ai_notes" || s === "manager_override" || s === "system") {
-    return s;
-  }
-  return "system";
 }
 
 function stageBucketFromStages(
@@ -236,6 +228,16 @@ export async function GET(req: Request) {
       paper_tip: string | null;
       risk_summary: string | null;
       next_steps: string | null;
+      pain_evidence_strength: string | null;
+      metrics_evidence_strength: string | null;
+      champion_evidence_strength: string | null;
+      criteria_evidence_strength: string | null;
+      competition_evidence_strength: string | null;
+      timing_evidence_strength: string | null;
+      budget_evidence_strength: string | null;
+      eb_evidence_strength: string | null;
+      process_evidence_strength: string | null;
+      paper_evidence_strength: string | null;
       paper_confidence: string | null;
       process_confidence: string | null;
       timing_confidence: string | null;
@@ -275,6 +277,11 @@ export async function GET(req: Request) {
         o.timing_tip, o.budget_tip, o.eb_tip,
         o.process_tip, o.paper_tip,
         o.risk_summary, o.next_steps,
+        o.pain_evidence_strength, o.metrics_evidence_strength,
+        o.champion_evidence_strength, o.criteria_evidence_strength,
+        o.competition_evidence_strength, o.timing_evidence_strength,
+        o.budget_evidence_strength, o.eb_evidence_strength,
+        o.process_evidence_strength, o.paper_evidence_strength,
         o.paper_confidence, o.process_confidence,
         o.timing_confidence, o.budget_confidence,
         o.health_score_source,
@@ -331,11 +338,11 @@ export async function GET(req: Request) {
       }
     }
 
-    const persistedScoring = (row as any)?.audit_details?.scoring ?? null;
-    const scoreSource = normalizeScoreSource(persistedScoring?.score_source ?? row.health_score_source);
+    const confidenceInputs = getConfidenceInputs(row);
     const computedScoring = computeConfidence({
       opportunity: row,
-      source: scoreSource,
+      source: confidenceInputs.source,
+      commentIngestionId: confidenceInputs.commentIngestionId,
       now: new Date(),
     });
     const confidenceBand = computedScoring.confidence_band;
