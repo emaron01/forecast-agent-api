@@ -86,8 +86,22 @@ function buildCategoryArgs(
     const summary = evidenceText ? (label ? `${label}: ${evidenceText}` : evidenceText) : "";
     args[`${dbPrefix}_summary`] = summary;
     args[`${dbPrefix}_tip`] = tip;
-    const evidenceStrength = String((data as any)?.evidence_strength ?? "").trim();
-    if (evidenceStrength) args[`${dbPrefix}_evidence_strength`] = evidenceStrength;
+    const SIGNAL_TO_EVIDENCE_STRENGTH: Record<string, string> = {
+      strong: "explicit_verified",
+      medium: "credible_indirect",
+      weak: "vague_rep_assertion",
+      missing: "unknown_missing",
+    };
+    const rawEvidenceStrength = String((data as any)?.evidence_strength ?? "").trim();
+    const rawSignal = String((data as any)?.signal ?? "").trim().toLowerCase();
+    const evidenceStrength =
+      rawEvidenceStrength ||
+      SIGNAL_TO_EVIDENCE_STRENGTH[rawSignal] ||
+      (score === 3 ? "explicit_verified" :
+       score === 2 ? "credible_indirect" :
+       score === 1 ? "vague_rep_assertion" :
+       "unknown_missing");
+    args[`${dbPrefix}_evidence_strength`] = evidenceStrength;
     const confidence = String((data as any)?.confidence ?? "").trim();
     if (confidence) args[`${dbPrefix}_confidence`] = confidence;
   }
