@@ -1434,16 +1434,32 @@ export default async function ExecutiveDashboardPage({
     const wantWon = args.outcome === "won";
     const useRepFilter = !!(args.repIds && args.repIds.length);
     const usePartnerFilter = !!(args.partnerNames && args.partnerNames.length);
-    const applyLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0;
     if (!useRepFilter && !usePartnerFilter) return [];
+    const normalizedPartnerNames = (args.partnerNames || [])
+      .map((name) => String(name || "").trim().toLowerCase())
+      .filter(Boolean);
+    const normalizedLimit =
+      typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0 ? Math.floor(args.limit) : null;
+    const params = [
+      args.orgId,
+      args.quotaPeriodId,
+      wantWon,
+      args.dateStart || null,
+      args.dateEnd || null,
+      args.repIds || [],
+      useRepFilter,
+      normalizedPartnerNames,
+      usePartnerFilter,
+    ] as const;
+    const limitClause = normalizedLimit != null ? `\n    LIMIT $${params.length + 1}` : "";
     const { rows } = await pool.query<TopPartnerDealRow>(
       `
     WITH qp AS (
       SELECT
         period_start::date AS period_start,
         period_end::date AS period_end,
-        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
-        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
+        GREATEST(period_start::date, COALESCE($4::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($5::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = $2::bigint
@@ -1465,8 +1481,8 @@ export default async function ExecutiveDashboardPage({
       JOIN qp ON TRUE
       WHERE o.org_id = $1
         AND (
-          ($8::boolean AND o.rep_id = ANY($7::bigint[]))
-          OR ($10::boolean AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($9::text[]))
+          ($7::boolean AND o.rep_id = ANY($6::bigint[]))
+          OR ($9::boolean AND lower(btrim(COALESCE(o.partner_name, ''))) = ANY($8::text[]))
         )
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
@@ -1488,20 +1504,9 @@ export default async function ExecutiveDashboardPage({
     FROM bucketed o
     WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
-    ${applyLimit ? "LIMIT $4" : ""}
+    ${limitClause}
     `,
-      [
-        args.orgId,
-        args.quotaPeriodId,
-        wantWon,
-        applyLimit ? args.limit : null,
-        args.dateStart || null,
-        args.dateEnd || null,
-        args.repIds || [],
-        useRepFilter,
-        (args.partnerNames || []).map((name) => String(name || "").trim().toLowerCase()).filter(Boolean),
-        usePartnerFilter,
-      ]
+      normalizedLimit != null ? [...params, normalizedLimit] : [...params]
     );
     return rows || [];
   }

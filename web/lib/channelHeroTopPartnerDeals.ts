@@ -18,11 +18,11 @@ export type ChannelHeroTopPartnerDealRow = {
   health_score: number | null;
 };
 
-/** Top-deals query: $7 repIds, $8 partnerNames, $9 repLen, $10 partnerLen */
+/** Top-deals query base params: $6 repIds, $7 partnerNames, $8 repLen, $9 partnerLen, $10 assignedPartnerNames */
 function channelHeroOppScopeSqlTopDeals(alias: string): string {
   return `(
-    ($9::int > 0 AND ${alias}.rep_id = ANY($7::bigint[]))
-    OR ($10::int > 0 AND lower(btrim(COALESCE(${alias}.partner_name, ''))) = ANY($8::text[]))
+    ($8::int > 0 AND ${alias}.rep_id = ANY($6::bigint[]))
+    OR ($9::int > 0 AND lower(btrim(COALESCE(${alias}.partner_name, ''))) = ANY($7::text[]))
   )`;
 }
 
@@ -49,15 +49,29 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
   const repLen = scopeRep.length;
   const partnerLen = scopePn.length;
   if (repLen === 0 && partnerLen === 0) return [];
-  const applyLimit = typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0;
+  const normalizedLimit =
+    typeof args.limit === "number" && Number.isFinite(args.limit) && args.limit > 0 ? Math.floor(args.limit) : null;
+  const params = [
+    args.orgId,
+    args.quotaPeriodId,
+    wantWon,
+    args.dateStart || null,
+    args.dateEnd || null,
+    scopeRep,
+    scopePn,
+    repLen,
+    partnerLen,
+    args.assignedPartnerNames,
+  ] as const;
+  const limitClause = normalizedLimit != null ? `\n    LIMIT $${params.length + 1}` : "";
   const { rows } = await pool.query<ChannelHeroTopPartnerDealRow>(
     `
     WITH qp AS (
       SELECT
         period_start::date AS period_start,
         period_end::date AS period_end,
-        GREATEST(period_start::date, COALESCE($5::date, period_start::date)) AS range_start,
-        LEAST(period_end::date, COALESCE($6::date, period_end::date)) AS range_end
+        GREATEST(period_start::date, COALESCE($4::date, period_start::date)) AS range_start,
+        LEAST(period_end::date, COALESCE($5::date, period_end::date)) AS range_end
       FROM quota_periods
       WHERE org_id = $1::bigint
         AND id = $2::bigint
@@ -81,7 +95,7 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
         AND o.partner_name IS NOT NULL
         AND btrim(o.partner_name) <> ''
         AND ${channelHeroOppScopeSqlTopDeals("o")}
-        AND ${partnerScopeSql("o", 11)}
+        AND ${partnerScopeSql("o", 10)}
         AND o.close_date IS NOT NULL
         AND o.close_date >= qp.range_start
         AND o.close_date <= qp.range_end
@@ -101,21 +115,9 @@ export async function listTopPartnerDealsChannelHeroScope(args: {
     FROM bucketed o
     WHERE (CASE WHEN $3::boolean THEN o.crm_bucket = 'won' ELSE o.crm_bucket = 'lost' END)
     ORDER BY amount DESC NULLS LAST, o.id DESC
-    ${applyLimit ? "LIMIT $4" : ""}
+    ${limitClause}
     `,
-    [
-      args.orgId,
-      args.quotaPeriodId,
-      wantWon,
-      applyLimit ? args.limit : null,
-      args.dateStart || null,
-      args.dateEnd || null,
-      scopeRep,
-      scopePn,
-      repLen,
-      partnerLen,
-      args.assignedPartnerNames,
-    ]
+    normalizedLimit != null ? [...params, normalizedLimit] : [...params]
   );
   return rows || [];
 }
