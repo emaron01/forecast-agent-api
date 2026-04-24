@@ -17,6 +17,7 @@ export type HubSpotProperty = {
   label: string;
   type: string;
   fieldType?: string;
+  displayFormat?: string;
 };
 
 export type HubSpotDeal = {
@@ -349,6 +350,7 @@ export async function getDealProperties(orgId: number): Promise<HubSpotResult<Hu
     label: String(r?.label || r?.name || ""),
     type: String(r?.type || ""),
     fieldType: r?.fieldType != null ? String(r.fieldType) : undefined,
+    displayFormat: r?.displayFormat != null ? String(r.displayFormat) : undefined,
   }));
   return { ok: true, data: mapped.filter((p) => p.name) };
 }
@@ -1084,6 +1086,18 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
     const mappingByField = new Map(
       mappingRows.map((row) => [String(row.sf_field || "").trim(), row] as const)
     );
+    const dealPropsRes = await getDealProperties(orgId);
+    if (dealPropsRes.ok === false) return { ok: false, error: dealPropsRes.error };
+    const dealPropByName = new Map(
+      dealPropsRes.data.map((prop) => [String(prop.name || "").trim(), prop] as const)
+    );
+
+    function formatHealthScoreForHubSpot(rawScore: number, targetProperty: string): number {
+      const roundedPercent = Math.round((rawScore / 30) * 100);
+      const target = dealPropByName.get(targetProperty);
+      const displayFormat = String(target?.displayFormat || "").trim().toLowerCase();
+      return displayFormat === "percentage" ? roundedPercent / 100 : roundedPercent;
+    }
 
     const props: Record<string, string | number> = {};
     for (const sfField of ["health_initial", "health_current", "risk_summary", "next_steps"] as const) {
@@ -1108,13 +1122,13 @@ export async function writeMatthewScoresToHubSpotDeal(args: {
         const existingValue = currentRes.json?.properties?.[targetProperty];
         if (existingValue != null && String(existingValue).trim() !== "") continue;
         const rawBaselineScore = Number(opp.baseline_health_score || 0) || 0;
-        props[targetProperty] = Math.round((rawBaselineScore / 30) * 100);
+        props[targetProperty] = formatHealthScoreForHubSpot(rawBaselineScore, targetProperty);
         continue;
       }
 
       if (sfField === "health_current") {
         const rawHealthScore = Number(opp.health_score || 0) || 0;
-        props[targetProperty] = Math.round((rawHealthScore / 30) * 100);
+        props[targetProperty] = formatHealthScoreForHubSpot(rawHealthScore, targetProperty);
         continue;
       }
 
