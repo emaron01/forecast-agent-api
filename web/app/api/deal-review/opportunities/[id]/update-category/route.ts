@@ -283,7 +283,7 @@ function firstQuestionForCategory(category: CategoryKey, baseQuestion?: string) 
     case "metrics":
       return "What measurable outcome matters most here (baseline → target), and who on the buyer side validated it?";
     case "champion":
-      return "Who is your internal sponsor/coach, what influence do they have, and what concrete action have they taken in this cycle to drive the deal?";
+      return "Who is your internal sponsor for this deal, what influence do they have, and what have they done so far to move it forward?";
     case "economic_buyer":
       return "Who is the economic buyer, what do they personally care about, and do you have direct access (or a committed intro)?";
     case "criteria":
@@ -1008,7 +1008,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "- For Budget: phrases like 'haven\'t discussed pricing', 'no budget', 'not confirmed' are explicit evidence; score low and provide a tip to confirm funding/approval.",
       "- If you need more information to score, ask ONE focused follow-up question.",
       "If probe_guidance is provided and the rep's answer is sufficient for the current score tier but has not yet provided evidence for the next tier, ask ONE probe question before finalizing. Adapt the phrasing naturally — do not recite verbatim. Skip the probe if the rep has already answered it or if asking would be redundant given context.",
-      "MANDATORY: Before finalizing any category at score 0, 1, or 2, you MUST ask the follow-up question specified in your instructions for that category. Do not finalize below score 3 without first asking it. The only exception is if the rep already answered it explicitly.",
+      "MANDATORY: Before finalizing any category at score 0, 1, or 2, apply the follow-up intent for that category from your instructions. Use judgment — if the rep's answer already addresses the intent, do not re-ask. Phrasing is yours; stay within the intent boundary.",
       "- Otherwise, produce a final update for this category: score (0-3), evidence, and coaching tip.",
       "- Also update wrap outputs (risk_summary and next_steps) using ONLY the known evidence. If coverage is incomplete, be accurate and not harsh.",
       "- Do NOT use the word 'champion' in any user-facing text; use 'Internal Sponsor'.",
@@ -1030,7 +1030,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. champion_name must be a person's full name only (e.g. 'Vince Campbell'), never a title or role description. Do not cross-populate the other role.",
       "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
-      "MANDATORY: Before finalizing any category at score 0, 1, or 2, you MUST ask the follow-up question specified in your system instructions for that category. Do not finalize below score 3 without first asking it. The only exception is if the rep has already explicitly answered it in their current response.",
+      "MANDATORY: Before finalizing any category at score 0, 1, or 2, apply the follow-up intent for that category from your instructions. Use judgment — if the rep's answer already addresses the intent, do not re-ask. Phrasing is yours; stay within the intent boundary.",
     ].join("\n");
     const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 

@@ -188,8 +188,13 @@ Champion / Internal Sponsor — scoring rules (MANDATORY):
 When a rep states their champion is introducing them to a senior
 executive or decision maker, this is evidence of Mobilizer (2) at
 minimum. Do not ask about budget or decision maker access — those are
-separate categories. Ask ONE Champion-specific follow-up: 'What
-specific action has [name] taken to advocate for this deal internally?'
+separate categories. Before finalizing Champion at score 0, 1, or 2, apply the
+mandatory follow-up intent: confirm the internal sponsor has
+taken a concrete action that moves THIS specific deal forward.
+Phrasing is yours — ask naturally and in context. If the rep
+has already described a qualifying action (securing budget,
+internal meetings, stakeholder alignment, executive advocacy),
+the intent is satisfied — do not re-ask.
 
 Executive titles (CIO, CFO, CEO, COO, CTO, SVP, VP, Chief [anything],
 President, Director) indicate decision-making authority. When the rep
