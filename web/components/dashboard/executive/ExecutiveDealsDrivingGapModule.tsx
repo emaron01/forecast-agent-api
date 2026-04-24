@@ -469,14 +469,11 @@ export function ExecutiveDealsDrivingGapModule(props: {
                               <div className="border-t border-[color:var(--sf-border)] px-3 py-3">
                                 {admissionEvidenceCats.length ? (
                                   <div>
-                                    <div className="flex flex-wrap gap-2">
+                                    <div className="space-y-1 text-sm text-[color:var(--sf-text-primary)]">
                                       {admissionEvidenceCats.map((cat) => (
-                                        <span
-                                          key={`admission:${id}:${cat.key}`}
-                                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${scoreBadgeClass(cat.score)}`}
-                                        >
-                                          {chipLabel(String(cat.key))} · {evidenceStrengthLabel(cat.evidence_strength)}
-                                        </span>
+                                        <div key={`admission:${id}:${cat.key}`}>
+                                          {chipLabel(String(cat.key))} - {evidenceStrengthLabel(cat.evidence_strength)}
+                                        </div>
                                       ))}
                                     </div>
                                     <div className="mt-2 text-xs text-[color:var(--sf-text-secondary)]">
