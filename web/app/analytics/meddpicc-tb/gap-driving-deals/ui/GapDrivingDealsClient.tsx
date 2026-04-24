@@ -67,6 +67,7 @@ type DealOut = {
     score_label: string;
     tip: string | null;
     evidence: string | null;
+    evidence_strength?: string | null;
   }>;
   signals: {
     risk_summary: string | null;
@@ -201,6 +202,42 @@ function chipLabel(key: string) {
 function isGreenScore(score: number | null) {
   const s = Number(score == null ? 0 : score);
   return Number.isFinite(s) && s >= 3;
+}
+
+function evidenceStrengthLabel(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase();
+  if (!normalized || normalized === "unknown" || normalized === "missing" || normalized === "null" || normalized === "unscored") {
+    return "No Evidence Present";
+  }
+  if (normalized === "explicit_verified") return "Explicit Verified";
+  if (normalized === "credible_indirect") return "Credible Indirect";
+  if (normalized === "vague_rep_assertion") return "Vague Rep Assertion";
+  return raw
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function scoreBand(score: number | null | undefined) {
+  const s = Number(score);
+  if (!Number.isFinite(s) || s <= 1) {
+    return {
+      label: "Low",
+      className: "border-[#E74C3C]/60 bg-[#E74C3C]/10 text-[#E74C3C]",
+    };
+  }
+  if (s >= 3) {
+    return {
+      label: "High",
+      className: "border-[#2ECC71]/50 bg-[#2ECC71]/10 text-[#2ECC71]",
+    };
+  }
+  return {
+    label: "Med",
+    className: "border-[#F1C40F]/60 bg-[#F1C40F]/10 text-[#B8860B]",
+  };
 }
 
 function equalsName(a: any, b: any) {
@@ -947,6 +984,8 @@ export function GapDrivingDealsClient(props: {
                       const activeCat = d.meddpicc_tb.find((c) => c.key === (activeKey as any)) || null;
                       const activeTitle = activeCat ? canonicalTitle(activeCat.key) : "";
                       const activeMeaning = activeCat ? canonicalMeaning(activeCat.key) : "";
+                      const activeEvidenceStrength = activeCat ? evidenceStrengthLabel(activeCat.evidence_strength) : "No Evidence Present";
+                      const activeScoreBand = activeCat ? scoreBand(activeCat.score) : null;
                       const crmStageLabel = String(d.crm_stage.label || "").trim() || "—";
                       const aiStageLabel = String(d.ai_verdict_stage || "").trim() || "—";
                       const repLabel = String(d.rep?.rep_name || "").trim() || "—";
@@ -1077,8 +1116,13 @@ export function GapDrivingDealsClient(props: {
                                       <div className="text-sm font-semibold text-[color:var(--sf-text-primary)]">
                                         {activeTitle} {activeMeaning ? <span className="font-normal text-[color:var(--sf-text-secondary)]">— {activeMeaning}</span> : null}
                                       </div>
-                                      <div className="mt-1 text-sm font-semibold text-[color:var(--sf-accent-primary)]">
-                                        {activeCat.score_label || "—"}
+                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-semibold text-[color:var(--sf-accent-primary)]">
+                                        <span>Evidence Strength: {activeEvidenceStrength}</span>
+                                        {activeScoreBand ? (
+                                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${activeScoreBand.className}`}>
+                                            {activeScoreBand.label}
+                                          </span>
+                                        ) : null}
                                       </div>
                                     </div>
                                   </div>

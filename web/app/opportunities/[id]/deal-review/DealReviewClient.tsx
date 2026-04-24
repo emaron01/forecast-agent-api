@@ -44,7 +44,7 @@ type ConfidenceEvidencePanel = {
   raw_text: string;
   risk_flags: unknown[];
   next_steps: string[];
-  categories: Array<{ category: string; score: number; evidence: string; tip: string }>;
+  categories: Array<{ category: string; score: number; evidence: string; tip: string; evidenceStrength: string }>;
 };
 
 type OrgStageMapping = { stage_value: string; bucket: string };
@@ -113,6 +113,33 @@ function displayCategoryLabel(category: string) {
   if (!key) return "Category";
   const row = (MEDDPICC_CANONICAL as any)?.[key] || null;
   return String(row?.titleLine || key.replace(/_/g, " ")).trim();
+}
+
+function evidenceStrengthLabel(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const normalized = raw.toLowerCase();
+  if (!normalized || normalized === "unknown" || normalized === "missing" || normalized === "null" || normalized === "unscored") {
+    return "No Evidence Present";
+  }
+  if (normalized === "explicit_verified") return "Explicit Verified";
+  if (normalized === "credible_indirect") return "Credible Indirect";
+  if (normalized === "vague_rep_assertion") return "Vague Rep Assertion";
+  return raw
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function evidenceBandFromScore(score: number | null | undefined) {
+  const s = Number(score);
+  if (!Number.isFinite(s) || s <= 1) return { label: "Low", className: "err" };
+  if (s >= 3) return { label: "High", className: "ok" };
+  return { label: "Med", className: "warn" };
+}
+
+function evidenceStrengthFieldName(category: CategoryKey) {
+  return `${category === "economic_buyer" ? "eb" : category}_evidence_strength`;
 }
 
 function inferCategoryFromPromptText(text: string): CategoryKey | "" {
@@ -446,13 +473,12 @@ export function DealReviewClient(props: {
   }, [opportunityId]);
 
   const buildCurrentDealReviewEvidence = useCallback((state: OppState | null): ConfidenceEvidencePanel => {
-    const categories = (state?.categories || [])
-      .filter((c) => String(c.evidence || "").trim() || String(c.tip || "").trim() || Number(c.score || 0) > 0)
-      .map((c) => ({
+    const categories = (state?.categories || []).map((c) => ({
         category: displayCategoryLabel(c.category),
         score: Number(c.score || 0) || 0,
         evidence: String(c.evidence || "").trim(),
         tip: String(c.tip || "").trim(),
+        evidenceStrength: evidenceStrengthLabel((state?.opportunity as any)?.[evidenceStrengthFieldName(c.category)]),
       }));
 
     return {
@@ -2370,11 +2396,6 @@ export function DealReviewClient(props: {
                     background: "rgba(255,255,255,0.02)",
                   }}
                 >
-                  {confidenceEvidencePanel.summary ? (
-                    <div style={{ marginBottom: 12 }}>
-                      <b>Summary:</b> {confidenceEvidencePanel.summary}
-                    </div>
-                  ) : null}
                   {confidenceEvidencePanel.raw_text ? (
                     <div style={{ marginBottom: 12 }}>
                       <b>Raw notes:</b>
@@ -2382,13 +2403,17 @@ export function DealReviewClient(props: {
                     </div>
                   ) : null}
                   {confidenceEvidencePanel.categories.length ? (
-                    <div style={{ marginBottom: confidenceEvidencePanel.risk_flags.length || confidenceEvidencePanel.next_steps.length ? 12 : 0 }}>
+                    <div style={{ marginBottom: confidenceEvidencePanel.risk_flags.length ? 12 : 0 }}>
                       <b>Latest review evidence:</b>
                       <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
                         {confidenceEvidencePanel.categories.map((c) => (
                           <div key={c.category} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: 10 }}>
-                            <div className="small" style={{ marginBottom: 4 }}>
-                              <b>{c.category}</b> {Number.isFinite(c.score) ? <span style={{ color: "var(--muted)" }}>· Score {c.score}</span> : null}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                              <div className="small">
+                                <b>{c.category}</b>
+                                <span style={{ color: "var(--muted)" }}> · Evidence Strength: {c.evidenceStrength}</span>
+                              </div>
+                              <span className={`pill ${evidenceBandFromScore(c.score).className}`}>{evidenceBandFromScore(c.score).label}</span>
                             </div>
                             {c.evidence ? <div className="small"><b>Evidence:</b> {c.evidence}</div> : null}
                             {c.tip ? <div className="small" style={{ marginTop: c.evidence ? 4 : 0 }}><b>Tip:</b> {c.tip}</div> : null}
@@ -2398,21 +2423,11 @@ export function DealReviewClient(props: {
                     </div>
                   ) : null}
                   {(confidenceEvidencePanel.risk_flags as any[])?.length ? (
-                    <div style={{ marginBottom: confidenceEvidencePanel.next_steps.length ? 12 : 0 }}>
+                    <div>
                       <b>Risk flags:</b>
                       <ul style={{ marginTop: 4, paddingLeft: 20 }}>
                         {(confidenceEvidencePanel.risk_flags as any[]).map((r, i) => (
                           <li key={i}>{typeof r === "object" && r?.type ? `${r.type} (${r.severity}): ${r.why}` : String(r)}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                  {confidenceEvidencePanel.next_steps?.length ? (
-                    <div>
-                      <b>Next steps:</b>
-                      <ul style={{ marginTop: 4, paddingLeft: 20 }}>
-                        {confidenceEvidencePanel.next_steps.map((s, i) => (
-                          <li key={i}>{s}</li>
                         ))}
                       </ul>
                     </div>
