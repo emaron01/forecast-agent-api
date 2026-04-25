@@ -6,6 +6,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const error = url.searchParams.get("error");
   const code = url.searchParams.get("code");
+  console.log("[hs-extension:installed] callback hit, code present:", !!code, "error:", error);
 
   if (error) {
     console.error("[hs-extension:installed] OAuth error:", error);
