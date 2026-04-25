@@ -23,6 +23,14 @@ export async function GET(req: Request) {
       const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
       const redirectUri = `${appUrl}/api/crm/hubspot/extension/installed`;
 
+      console.log("[hs-extension:installed] token exchange params:", {
+        grant_type: "authorization_code",
+        client_id: clientId ? clientId.slice(0, 8) + "..." : "MISSING",
+        client_secret: clientSecret ? "present" : "MISSING",
+        redirect_uri: redirectUri,
+        code: code ? code.slice(0, 8) + "..." : "MISSING",
+      });
+
       const tokenRes = await fetch("https://api.hubapi.com/oauth/v1/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
