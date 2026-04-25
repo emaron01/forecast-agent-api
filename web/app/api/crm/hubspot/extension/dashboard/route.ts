@@ -2,8 +2,8 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { pool } from "../../../../../lib/pool";
-import { verifyExtensionToken } from "../../../../../lib/hubspotExtensionJwt";
+import { pool } from "../../../../../../lib/pool";
+import { verifyExtensionToken } from "../../../../../../lib/hubspotExtensionJwt";
 
 function jsonError(status: number, msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status });

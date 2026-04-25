@@ -2,9 +2,9 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "crypto";
-import { pool } from "../../../../../lib/pool";
-import { signExtensionToken, type HubSpotExtensionTokenPayload } from "../../../../../lib/hubspotExtensionJwt";
-import type { HubSpotDealState } from "../../../../crm/hubspot/review/types";
+import { pool } from "../../../../../../lib/pool";
+import { signExtensionToken, type HubSpotExtensionTokenPayload } from "../../../../../../lib/hubspotExtensionJwt";
+import type { HubSpotDealState } from "../../../../../crm/hubspot/review/types";
 
 function jsonError(status: number, msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status });

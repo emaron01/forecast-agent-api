@@ -1,9 +1,9 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { pool } from "../../../../../lib/pool";
-import { verifyExtensionToken } from "../../../../../lib/hubspotExtensionJwt";
-import type { HubSpotDealState } from "../../../../crm/hubspot/review/types";
+import { pool } from "../../../../../../lib/pool";
+import { verifyExtensionToken } from "../../../../../../lib/hubspotExtensionJwt";
+import type { HubSpotDealState } from "../../../../../crm/hubspot/review/types";
 
 function jsonError(status: number, msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status });
