@@ -59,7 +59,43 @@ export async function POST(req: Request) {
   const callId = randomUUID();
   let reqSpan: ReturnType<typeof startSpan> | null = null;
   try {
-    const auth = await getAuth();
+    // HubSpot UI Extension auth path — additive only.
+    // Does not affect any existing auth flow.
+    let auth: Awaited<ReturnType<typeof getAuth>> | null = null;
+    const hsToken = req.headers.get("x-hs-extension-token");
+    if (hsToken) {
+      try {
+        const { verifyExtensionToken } = await import("../../../../lib/hubspotExtensionJwt");
+        const payload = await verifyExtensionToken(hsToken);
+        if (payload.purpose !== "review") {
+          return NextResponse.json({ ok: false, error: "Invalid token purpose" }, { status: 403 });
+        }
+        auth = {
+          kind: "user",
+          session_token: "",
+          user: {
+            id: payload.rep_id,
+            public_id: "",
+            org_id: payload.org_id,
+            email: "",
+            role: "ADMIN",
+            hierarchy_level: 0,
+            first_name: null,
+            last_name: null,
+            display_name: "HubSpot Extension",
+            account_owner_name: null,
+            manager_user_id: null,
+            admin_has_full_analytics_access: false,
+            see_all_visibility: true,
+            active: true,
+          },
+        };
+      } catch {
+        // JWT invalid — fall through to normal auth
+      }
+    }
+
+    if (!auth) auth = await getAuth();
     if (!auth) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
     const orgId = auth.kind === "user" ? auth.user.org_id : auth.orgId || 0;

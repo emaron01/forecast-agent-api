@@ -4,6 +4,8 @@ import type { NextRequest } from "next/server";
 const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth",
+  "/crm/hubspot/review",
+  "/api/crm/hubspot/extension",
   "/embed",
   "/_next",
   "/favicon",

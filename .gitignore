@@ -9,5 +9,5 @@ web/.next/
 web/.test-dist/
 web/tsconfig.tsbuildinfo
 
-
-
+# HubSpot config file
+hubspot.config.yml

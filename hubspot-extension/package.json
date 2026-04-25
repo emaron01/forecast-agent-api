@@ -1,0 +1,13 @@
+{
+  "name": "salesforecast-hubspot-extension",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@hubspot/ui-extensions": "^0.13.0"
+  },
+  "scripts": {
+    "dev": "hs project dev",
+    "deploy": "hs project deploy"
+  }
+}
+

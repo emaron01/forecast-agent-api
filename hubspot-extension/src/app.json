@@ -1,0 +1,31 @@
+{
+  "name": "SalesForecast.io Deal Review",
+  "description": "AI-powered MEDDPICC deal review with Matthew",
+  "uid": "salesforecast-deal-review",
+  "public": false,
+  "scopes": [
+    "crm.objects.deals.read",
+    "crm.objects.owners.read",
+    "crm.objects.contacts.read"
+  ],
+  "extensions": {
+    "crm": {
+      "cards": [
+        {
+          "file": "DealReviewCard.jsx",
+          "modules": [
+            {
+              "title": "SalesForecast.io",
+              "label": "SalesForecast.io Deal Review",
+              "hostType": "crm.record.tab",
+              "location": "crm.record.tab",
+              "objectTypes": [
+                { "name": "deals" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

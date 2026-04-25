@@ -1,0 +1,11 @@
+{
+  "uid": "salesforecast-deal-review-card",
+  "type": "card",
+  "config": {
+    "name": "SalesForecast.io",
+    "description": "AI-powered MEDDPICC deal review with Matthew",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/DealReviewCard.jsx",
+    "objectTypes": ["DEALS"]
+  }
+}
