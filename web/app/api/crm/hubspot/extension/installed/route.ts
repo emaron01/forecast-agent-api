@@ -18,8 +18,8 @@ export async function GET(req: Request) {
 
   if (code) {
     try {
-      const clientId = process.env.HUBSPOT_CLIENT_ID;
-      const clientSecret = process.env.HUBSPOT_CLIENT_SECRET;
+      const clientId = process.env.HUBSPOT_EXTENSION_CLIENT_ID;
+      const clientSecret = process.env.HUBSPOT_EXTENSION_CLIENT_SECRET;
       const appUrl = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
       const redirectUri = `${appUrl}/api/crm/hubspot/extension/installed`;
 
