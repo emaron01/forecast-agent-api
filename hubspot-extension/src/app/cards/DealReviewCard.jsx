@@ -14,14 +14,17 @@ import { useState, useEffect } from "react";
 // APP_URL is injected from serverless secrets at runtime
 // Do not hardcode any URL here
 
-hubspot.extend(({ context, actions }) => (
+const APP_URL = "https://forecast-agent-api.onrender.com";
+
+hubspot.extend(({ context, runServerlessFunction, actions }) => (
   <DealReviewCard
     context={context}
+    runServerlessFunction={runServerlessFunction}
     actions={actions}
   />
 ));
 
-function DealReviewCard({ context, actions }) {
+function DealReviewCard({ context, runServerlessFunction, actions }) {
   const [state, setState] = useState("loading");
   const [dealData, setDealData] = useState(null);
   const [tokens, setTokens] = useState(null);
@@ -30,32 +33,15 @@ function DealReviewCard({ context, actions }) {
   useEffect(() => {
     async function init() {
       try {
-        const appUrl = "https://forecast-agent-api.onrender.com";
-        const timestamp = String(Date.now());
-        
-        const body = JSON.stringify({
-          portalId: String(context.portal.id),
-          dealId: String(context.crm.objectId),
-          userEmail: String(context.user.email),
-          timestamp,
+        const result = await runServerlessFunction({
+          name: "getToken",
+          parameters: {
+            dealId: String(context.crm.objectId),
+            userEmail: String(context.user.email),
+            portalId: String(context.portal.id),
+          },
         });
-
-        const response = await hubspot.fetch(
-          `${appUrl}/api/crm/hubspot/extension/token`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-HubSpot-Portal-Id": String(context.portal.id),
-              "X-HubSpot-Timestamp": timestamp,
-            },
-            body,
-          }
-        );
-
-        const result = await response.json();
         if (!result.ok) throw new Error(result.error || "Token fetch failed");
-        
         setDealData(result.dealState);
         setTokens({
           review: result.reviewToken,
@@ -73,11 +59,7 @@ function DealReviewCard({ context, actions }) {
   function handleStartReview(mode) {
     if (!tokens?.review) return;
     actions.openIframeModal({
-      uri: `${context.portal.appUrl ||
-        "https://app.salesforecast.io"
-      }/crm/hubspot/review?token=${
-        encodeURIComponent(tokens.review)
-      }&mode=${mode}`,
+      uri: `${APP_URL}/crm/hubspot/review?token=${encodeURIComponent(tokens.review)}&mode=${mode}`,
       height: 900,
       width: 1200,
       title: "SalesForecast.io Deal Review",
@@ -88,11 +70,7 @@ function DealReviewCard({ context, actions }) {
   function handleOpenDashboard() {
     if (!tokens?.dashboard) return;
     actions.openIframeModal({
-      uri: `${context.portal.appUrl ||
-        "https://app.salesforecast.io"
-      }/api/crm/hubspot/extension/dashboard?token=${
-        encodeURIComponent(tokens.dashboard)
-      }`,
+      uri: `${APP_URL}/api/crm/hubspot/extension/dashboard?token=${encodeURIComponent(tokens.dashboard)}`,
       height: 900,
       width: 1400,
       title: "SalesForecast.io Dashboard",

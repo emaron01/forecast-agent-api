@@ -1,0 +1,4 @@
+{
+  "secrets": ["APP_URL", "HUBSPOT_EXTENSION_CLIENT_SECRET"]
+}
+
