@@ -43,12 +43,22 @@ export async function GET(req: Request) {
   if (st.ok === false) return NextResponse.json({ ok: false, error: st.error }, { status: 500 });
 
   const redirectUri = `${appUrl}/api/integrations/hubspot/callback`;
-  const scopes = buildOAuthScopes(hubTier);
+  const allScopes = buildOAuthScopes(hubTier);
+  const optionalScopes = ["crm.objects.forecasts.read", "crm.schemas.forecasts.read"];
+  const requiredScopes = allScopes
+    .split(" ")
+    .filter((s) => !optionalScopes.includes(s))
+    .join(" ");
+  const optionalScopeStr = allScopes
+    .split(" ")
+    .filter((s) => optionalScopes.includes(s))
+    .join(" ");
 
   const url = new URL("https://app.hubspot.com/oauth/authorize");
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", scopes);
+  url.searchParams.set("scope", requiredScopes);
+  if (optionalScopeStr) url.searchParams.set("optional_scope", optionalScopeStr);
   url.searchParams.set("state", st.data);
 
   redirect(url.toString());
