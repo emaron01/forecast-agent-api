@@ -82,16 +82,20 @@ function toDealState(row: any): HubSpotDealState {
 
 export async function POST(req: Request) {
   try {
-    const clientSecret = process.env.HUBSPOT_CLIENT_SECRET;
-    const signingSecret = process.env.HUBSPOT_UI_EXTENSION_SECRET;
-    if (!clientSecret || !signingSecret) return jsonError(500, "Server misconfigured");
-
     const rawBody = await req.text();
-    const signature = req.headers.get("x-hubspot-signature") || "";
-    const timestamp = req.headers.get("x-hubspot-request-timestamp") || "";
+    const signaturesHeader = req.headers.get("x-hubspot-signatures") || "";
 
-    if (!validateHubSpotSignature(clientSecret, timestamp, rawBody, signature)) {
-      return jsonError(401, "Invalid signature");
+    // hubspot.fetch() automatically adds HubSpot-signed headers; for that path we only require
+    // the aggregate signature header to be present.
+    if (!signaturesHeader) {
+      const clientSecret = process.env.HUBSPOT_CLIENT_SECRET;
+      if (!clientSecret) return jsonError(500, "Server misconfigured");
+
+      const signature = req.headers.get("x-hubspot-signature") || "";
+      const timestamp = req.headers.get("x-hubspot-request-timestamp") || "";
+      if (!validateHubSpotSignature(clientSecret, timestamp, rawBody, signature)) {
+        return jsonError(401, "Invalid signature");
+      }
     }
 
     let body: { portalId?: string; dealId?: string; userEmail?: string; timestamp?: string };

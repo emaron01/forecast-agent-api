@@ -14,15 +14,14 @@ import { useState, useEffect } from "react";
 // APP_URL is injected from serverless secrets at runtime
 // Do not hardcode any URL here
 
-hubspot.extend(({ context, runServerlessFunction, actions }) => (
+hubspot.extend(({ context, actions }) => (
   <DealReviewCard
     context={context}
-    runServerlessFunction={runServerlessFunction}
     actions={actions}
   />
 ));
 
-function DealReviewCard({ context, runServerlessFunction, actions }) {
+function DealReviewCard({ context, actions }) {
   const [state, setState] = useState("loading");
   const [dealData, setDealData] = useState(null);
   const [tokens, setTokens] = useState(null);
@@ -31,15 +30,32 @@ function DealReviewCard({ context, runServerlessFunction, actions }) {
   useEffect(() => {
     async function init() {
       try {
-        const result = await runServerlessFunction({
-          name: "getToken",
-          parameters: {
-            dealId: String(context.crm.objectId),
-            userEmail: String(context.user.email),
-            portalId: String(context.portal.id),
-          },
+        const appUrl = "https://forecast-agent-api.onrender.com";
+        const timestamp = String(Date.now());
+        
+        const body = JSON.stringify({
+          portalId: String(context.portal.id),
+          dealId: String(context.crm.objectId),
+          userEmail: String(context.user.email),
+          timestamp,
         });
-        if (!result.ok) throw new Error(result.error);
+
+        const response = await hubspot.fetch(
+          `${appUrl}/api/crm/hubspot/extension/token`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-HubSpot-Portal-Id": String(context.portal.id),
+              "X-HubSpot-Timestamp": timestamp,
+            },
+            body,
+          }
+        );
+
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || "Token fetch failed");
+        
         setDealData(result.dealState);
         setTokens({
           review: result.reviewToken,
