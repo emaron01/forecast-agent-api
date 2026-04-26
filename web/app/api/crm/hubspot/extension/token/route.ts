@@ -1,7 +1,6 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { createHash, timingSafeEqual } from "crypto";
 import { pool } from "../../../../../../lib/pool";
 import { signExtensionToken, type HubSpotExtensionTokenPayload } from "../../../../../../lib/hubspotExtensionJwt";
 import type { HubSpotDealState } from "../../../../../crm/hubspot/review/types";
@@ -10,13 +9,24 @@ function jsonError(status: number, msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-function validateHubSpotSignature(clientSecret: string, timestamp: string, rawBody: string, signature: string): boolean {
+async function validateHubSpotSignatureV3(
+  clientSecret: string,
+  method: string,
+  uri: string,
+  body: string,
+  timestamp: string,
+  signature: string
+): Promise<boolean> {
   const MAX_AGE_MS = 5 * 60 * 1000;
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > MAX_AGE_MS) return false;
-
-  const expected = createHash("sha256").update(clientSecret + timestamp + rawBody).digest("hex");
+  if (!Number.isFinite(ts) || Date.now() - ts > MAX_AGE_MS) {
+    return false;
+  }
+  const { createHmac } = await import("crypto");
+  const sourceString = `${method}${uri}${body}${timestamp}`;
+  const expected = createHmac("sha256", clientSecret).update(sourceString).digest("base64");
   try {
+    const { timingSafeEqual } = await import("crypto");
     return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
   } catch {
     return false;
@@ -83,19 +93,18 @@ function toDealState(row: any): HubSpotDealState {
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
-    const signaturesHeader = req.headers.get("x-hubspot-signatures") || "";
 
-    // hubspot.fetch() automatically adds HubSpot-signed headers; for that path we only require
-    // the aggregate signature header to be present.
-    if (!signaturesHeader) {
-      const clientSecret = process.env.HUBSPOT_EXTENSION_CLIENT_SECRET;
-      if (!clientSecret) return jsonError(500, "Server misconfigured");
+    const signatureV3 = req.headers.get("x-hubspot-signature-v3") || "";
+    const timestamp = req.headers.get("x-hubspot-request-timestamp") || "";
+    const uri = new URL(req.url).toString();
 
-      const signature = req.headers.get("x-hubspot-signature") || "";
-      const timestamp = req.headers.get("x-hubspot-request-timestamp") || "";
-      if (!validateHubSpotSignature(clientSecret, timestamp, rawBody, signature)) {
-        return jsonError(401, "Invalid signature");
-      }
+    const clientSecret = process.env.HUBSPOT_EXTENSION_CLIENT_SECRET;
+    if (!clientSecret) return jsonError(500, "Server misconfigured");
+
+    const valid = await validateHubSpotSignatureV3(clientSecret, "POST", uri, rawBody, timestamp, signatureV3);
+    if (!valid) {
+      console.error("[hs-extension:token] invalid v3 signature");
+      return jsonError(401, "Invalid signature");
     }
 
     let body: { portalId?: string; dealId?: string; userEmail?: string; timestamp?: string };
@@ -110,6 +119,8 @@ export async function POST(req: Request) {
     const userEmail = String(body.userEmail || "").trim().toLowerCase();
     if (!portalId || !dealId || !userEmail) return jsonError(400, "Missing required fields");
 
+    console.log("[hs-extension:token] request portalId:", portalId);
+
     const orgRes = await pool.query<{ org_id: number }>(
       `SELECT org_id
          FROM hubspot_connections
@@ -117,7 +128,7 @@ export async function POST(req: Request) {
         LIMIT 1`,
       [portalId]
     );
-    if (!orgRes.rows[0]) return jsonError(404, "Organization not found");
+    if (!orgRes.rows[0]) return jsonError(401, "Organization not found");
     const org_id = Number(orgRes.rows[0].org_id);
 
     const repRes = await pool.query<{ rep_id: number }>(
