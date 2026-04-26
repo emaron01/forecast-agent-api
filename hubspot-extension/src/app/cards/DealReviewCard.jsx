@@ -27,21 +27,15 @@ function DealReviewCard({ context, actions }) {
   useEffect(() => {
     async function init() {
       try {
-        const body = JSON.stringify({
-          portalId: String(context.portal.id),
-          dealId: String(context.crm.objectId),
-          userEmail: String(context.user.email),
-          timestamp: String(Date.now()),
-        });
-
         const response = await hubspot.fetch(
           "https://forecast-agent-api.onrender.com/api/crm/hubspot/extension/token",
           {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
+            body: {
+              portalId: String(context.portal.id),
+              dealId: String(context.crm.objectId),
+              userEmail: String(context.user.email),
             },
-            body,
           }
         );
 

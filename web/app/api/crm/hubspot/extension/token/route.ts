@@ -9,30 +9,6 @@ function jsonError(status: number, msg: string) {
   return NextResponse.json({ ok: false, error: msg }, { status });
 }
 
-async function validateHubSpotSignatureV3(
-  clientSecret: string,
-  method: string,
-  uri: string,
-  body: string,
-  timestamp: string,
-  signature: string
-): Promise<boolean> {
-  const MAX_AGE_MS = 5 * 60 * 1000;
-  const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Date.now() - ts > MAX_AGE_MS) {
-    return false;
-  }
-  const { createHmac } = await import("crypto");
-  const sourceString = `${method}${uri}${body}${timestamp}`;
-  const expected = createHmac("sha256", clientSecret).update(sourceString).digest("base64");
-  try {
-    const { timingSafeEqual } = await import("crypto");
-    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
-  } catch {
-    return false;
-  }
-}
-
 function toDealState(row: any): HubSpotDealState {
   const health_pct =
     row.health_score != null
@@ -94,32 +70,22 @@ export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
 
-    const signatureV3 = req.headers.get("x-hubspot-signature-v3") || "";
-    const timestamp = req.headers.get("x-hubspot-request-timestamp") || "";
-    const uri = new URL(req.url).toString();
+    const url = new URL(req.url);
+    const qsPortalId = url.searchParams.get("portalId") || "";
 
-    const clientSecret = process.env.HUBSPOT_EXTENSION_CLIENT_SECRET;
-    if (!clientSecret) return jsonError(500, "Server misconfigured");
-
-    const valid = await validateHubSpotSignatureV3(clientSecret, "POST", uri, rawBody, timestamp, signatureV3);
-    if (!valid) {
-      console.error("[hs-extension:token] invalid v3 signature");
-      return jsonError(401, "Invalid signature");
-    }
-
-    let body: { portalId?: string; dealId?: string; userEmail?: string; timestamp?: string };
+    let body: any = {};
     try {
       body = JSON.parse(rawBody);
     } catch {
-      return jsonError(400, "Invalid request body");
+      body = {};
     }
 
-    const portalId = String(body.portalId || "").trim();
+    const portalId = String(body.portalId || qsPortalId || "").trim();
     const dealId = String(body.dealId || "").trim();
     const userEmail = String(body.userEmail || "").trim().toLowerCase();
     if (!portalId || !dealId || !userEmail) return jsonError(400, "Missing required fields");
 
-    console.log("[hs-extension:token] request portalId:", portalId);
+    console.log("[hs-extension:token] hit, portalId:", portalId);
 
     const orgRes = await pool.query<{ org_id: number }>(
       `SELECT org_id
