@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     // hubspot.fetch() automatically adds HubSpot-signed headers; for that path we only require
     // the aggregate signature header to be present.
     if (!signaturesHeader) {
-      const clientSecret = process.env.HUBSPOT_CLIENT_SECRET;
+      const clientSecret = process.env.HUBSPOT_EXTENSION_CLIENT_SECRET;
       if (!clientSecret) return jsonError(500, "Server misconfigured");
 
       const signature = req.headers.get("x-hubspot-signature") || "";
