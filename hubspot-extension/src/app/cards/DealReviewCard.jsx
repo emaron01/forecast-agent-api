@@ -56,27 +56,20 @@ function DealReviewCard({ context, actions }) {
     init();
   }, []);
 
-  function handleStartReview(mode) {
+  function handleFullReview() {
     if (!tokens?.review) return;
-    actions.openIframeModal({
-      uri: `https://forecast-agent-api.onrender.com/api/crm/hubspot/extension/session?token=${encodeURIComponent(tokens.review)}&mode=${mode}`,
-      height: 900,
-      width: 1200,
-      title: "SalesForecast.io Deal Review",
-      flush: true,
+    const publicId = dealData?.public_id || "";
+    actions.navigateToExternalUrl({
+      url: `https://forecast-agent-api.onrender.com/api/crm/hubspot/extension/session?token=${encodeURIComponent(tokens.review)}&mode=voice`,
+      newTab: true,
     });
   }
 
   function handleOpenDashboard() {
     if (!tokens?.dashboard) return;
-    actions.openIframeModal({
-      uri: `${"https://forecast-agent-api.onrender.com"}/api/crm/hubspot/extension/dashboard?token=${
-        encodeURIComponent(tokens.dashboard)
-      }`,
-      height: 900,
-      width: 1400,
-      title: "SalesForecast.io Dashboard",
-      flush: true,
+    actions.navigateToExternalUrl({
+      url: `https://forecast-agent-api.onrender.com/api/crm/hubspot/extension/dashboard?token=${encodeURIComponent(tokens.dashboard)}`,
+      newTab: true,
     });
   }
 
@@ -141,18 +134,15 @@ function DealReviewCard({ context, actions }) {
 
   return (
     <Flex direction="column" gap="medium">
-      <Heading>SalesForecast.io</Heading>
 
-      {/* Health + Verdict + Confidence pills */}
+      {/* Header row - Health, Verdict, Confidence */}
       <Flex direction="row" gap="small" wrap="wrap">
         {health != null && (
           <Tag variant={healthVariant(health)}>
             Health {health}%
           </Tag>
         )}
-        {verdict && (
-          <Tag>AI: {verdict}</Tag>
-        )}
+        {verdict && <Tag>AI: {verdict}</Tag>}
         {confidence && (
           <Tag variant={confidenceVariant(confidence)}>
             {confidence.charAt(0).toUpperCase() +
@@ -161,20 +151,67 @@ function DealReviewCard({ context, actions }) {
         )}
       </Flex>
 
-      {/* Top Risk */}
+      {/* Top Risk categories */}
+      {topRisk.length > 0 && (
+        <Flex direction="column" gap="extra-small">
+          <Text format={{ fontWeight: "bold" }}>Top Risk</Text>
+          <Flex direction="row" gap="extra-small" wrap="wrap">
+            {topRisk.map((c) => (
+              <Tag key={c.key} variant="error">{c.label}</Tag>
+            ))}
+          </Flex>
+        </Flex>
+      )}
+
+      {/* Top Risk Evidence */}
       {topRisk.length > 0 && (
         <Flex direction="column" gap="extra-small">
           <Text format={{ fontWeight: "bold" }}>
-            Top Risk
+            Top Risk Evidence
           </Text>
-          <Flex direction="row" gap="extra-small"
-            wrap="wrap">
-            {topRisk.map((c) => (
-              <Tag key={c.key} variant="error">
-                {c.label}
-              </Tag>
-            ))}
-          </Flex>
+          {topRisk.map((c) => {
+            const evidence = dealData?.[`${c.key}_summary`];
+            return evidence ? (
+              <Text key={c.key} variant="microcopy">
+                {c.label}: {evidence}
+              </Text>
+            ) : null;
+          })}
+        </Flex>
+      )}
+
+      {/* Top Risk Coaching Tips */}
+      {topRisk.length > 0 && (
+        <Flex direction="column" gap="extra-small">
+          <Text format={{ fontWeight: "bold" }}>
+            Coaching Tips
+          </Text>
+          {topRisk.map((c) => {
+            const tip = dealData?.[`${c.key}_tip`];
+            return tip ? (
+              <Text key={c.key} variant="microcopy">
+                {c.label}: {tip}
+              </Text>
+            ) : null;
+          })}
+        </Flex>
+      )}
+
+      <Divider />
+
+      {/* Risk Summary */}
+      {dealData?.risk_summary && (
+        <Flex direction="column" gap="extra-small">
+          <Text format={{ fontWeight: "bold" }}>Risk Summary</Text>
+          <Text>{dealData.risk_summary}</Text>
+        </Flex>
+      )}
+
+      {/* Next Steps */}
+      {dealData?.next_steps && (
+        <Flex direction="column" gap="extra-small">
+          <Text format={{ fontWeight: "bold" }}>Next Steps</Text>
+          <Text>{dealData.next_steps}</Text>
         </Flex>
       )}
 
@@ -182,25 +219,14 @@ function DealReviewCard({ context, actions }) {
 
       {/* Action buttons */}
       <Flex direction="column" gap="small">
-        <Button
-          variant="primary"
-          onClick={() => handleStartReview("voice")}
-        >
-          ▶ Start Voice Review
+        <Button variant="primary" onClick={handleFullReview}>
+          ▶ Start Full Review ↗
         </Button>
-        <Button
-          variant="secondary"
-          onClick={() => handleStartReview("text")}
-        >
-          ✎ Text Update
-        </Button>
+        <Link onClick={handleOpenDashboard}>
+          Open Dashboard →
+        </Link>
       </Flex>
 
-      <Divider />
-
-      <Link onClick={handleOpenDashboard}>
-        Open Full Dashboard →
-      </Link>
     </Flex>
   );
 }
