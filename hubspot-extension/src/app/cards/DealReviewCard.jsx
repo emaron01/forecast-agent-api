@@ -45,6 +45,7 @@ function DealReviewCard({ context, actions }) {
         setTokens({
           review: result.reviewToken,
           dashboard: result.dashboardToken,
+          publicId: result.dealState?.public_id || "",
         });
         setState("ready");
       } catch (e) {
@@ -58,9 +59,7 @@ function DealReviewCard({ context, actions }) {
   function handleStartReview(mode) {
     if (!tokens?.review) return;
     actions.openIframeModal({
-      uri: `${"https://forecast-agent-api.onrender.com"}/crm/hubspot/review?token=${
-        encodeURIComponent(tokens.review)
-      }&mode=${mode}`,
+      uri: `https://forecast-agent-api.onrender.com/crm/hubspot/review?token=${encodeURIComponent(tokens.review)}&mode=${mode}`,
       height: 900,
       width: 1200,
       title: "SalesForecast.io Deal Review",
