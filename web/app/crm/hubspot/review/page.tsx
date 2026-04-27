@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { verifyExtensionToken } from "../../../../lib/hubspotExtensionJwt";
 import { DealReviewClient } from "../../../opportunities/[id]/deal-review/DealReviewClient";
 import { pool } from "../../../../lib/pool";
 import { closedOutcomeFromOpportunityRow } from "../../../../lib/opportunityOutcome";
+import { randomToken, sha256Hex } from "../../../../lib/auth";
 
 export const runtime = "nodejs";
 
@@ -46,6 +48,28 @@ export default async function HubSpotReviewPage(ctx: {
   } catch {
     // Let client handle it
   }
+
+  const repRes = await pool.query<{ user_id: number }>(
+    `SELECT user_id FROM reps WHERE id = $1 AND org_id = $2 LIMIT 1`,
+    [payload.rep_id, payload.org_id]
+  );
+  const userId = repRes.rows[0]?.user_id;
+  if (!userId) redirect("/");
+
+  const sessionToken = randomToken();
+  const tokenHash = sha256Hex(sessionToken);
+  await pool.query(
+    `INSERT INTO user_sessions (user_id, session_token_hash, expires_at)
+     VALUES ($1, $2, NOW() + INTERVAL '14 days')`,
+    [userId, tokenHash]
+  );
+  cookies().set("fa_session", sessionToken, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 14 * 24 * 60 * 60,
+  });
 
   const prefill = category === "paper" ? PAPER_PROCESS_PREFILL : undefined;
 
