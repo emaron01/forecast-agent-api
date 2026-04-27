@@ -5,6 +5,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth",
   "/crm/hubspot/review",
+  "/api/crm/hubspot/extension/session",
   "/api/crm/hubspot/extension",
   "/embed",
   "/_next",
