@@ -432,7 +432,7 @@ export async function runHubSpotIngest(params: {
       .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
       .flatMap((r) => {
         const raw = String(r.hubspot_property || "").trim();
-        if (!raw || r.sf_field === "notes_source") return [];
+        if (!raw) return [];
         if (raw.startsWith("{")) {
           // Extract custom_property from notes_source JSON
           try {
@@ -582,7 +582,7 @@ export async function syncHubSpotDealMetadataOnly(args: { orgId: number; dealId:
       .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
       .flatMap((r) => {
         const raw = String(r.hubspot_property || "").trim();
-        if (!raw || r.sf_field === "notes_source") return [];
+        if (!raw) return [];
         if (raw.startsWith("{")) {
           // Extract custom_property from notes_source JSON
           try {
