@@ -197,24 +197,10 @@ function DealReviewCard({ context, actions }) {
         const score = Number(dealData?.[`${c.key}_score`] ?? 0);
         const evidence = dealData?.[`${c.key}_summary`];
         const tip = dealData?.[`${c.key}_tip`];
-        const scoreVariant =
-          score >= 3 ? "success" :
-          score >= 2 ? "warning" :
-          "error";
         return (
           <Accordion
             key={c.key}
-            title={
-              <Flex direction="row" gap="small"
-                align="center">
-                <Text format={{ fontWeight: "bold" }}>
-                  {c.label}
-                </Text>
-                <Tag variant={scoreVariant}>
-                  {score}/3
-                </Tag>
-              </Flex>
-            }
+            title={`${c.label} · ${score}/3`}
           >
             <Flex direction="column" gap="extra-small">
               {evidence && (
