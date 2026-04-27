@@ -58,9 +58,7 @@ function DealReviewCard({ context, actions }) {
   function handleStartReview(mode) {
     if (!tokens?.review) return;
     actions.openIframeModal({
-      uri: `${context.portal.appUrl ||
-        "https://app.salesforecast.io"
-      }/crm/hubspot/review?token=${
+      uri: `${"https://forecast-agent-api.onrender.com"}/crm/hubspot/review?token=${
         encodeURIComponent(tokens.review)
       }&mode=${mode}`,
       height: 900,
@@ -73,9 +71,7 @@ function DealReviewCard({ context, actions }) {
   function handleOpenDashboard() {
     if (!tokens?.dashboard) return;
     actions.openIframeModal({
-      uri: `${context.portal.appUrl ||
-        "https://app.salesforecast.io"
-      }/api/crm/hubspot/extension/dashboard?token=${
+      uri: `${"https://forecast-agent-api.onrender.com"}/api/crm/hubspot/extension/dashboard?token=${
         encodeURIComponent(tokens.dashboard)
       }`,
       height: 900,
