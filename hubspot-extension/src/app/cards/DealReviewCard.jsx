@@ -135,7 +135,7 @@ function DealReviewCard({ context, actions }) {
   return (
     <Flex direction="column" gap="medium">
 
-      {/* Header row - Health, Verdict, Confidence */}
+      {/* Health + Verdict + Confidence */}
       <Flex direction="row" gap="small" wrap="wrap">
         {health != null && (
           <Tag variant={healthVariant(health)}>
@@ -151,58 +151,66 @@ function DealReviewCard({ context, actions }) {
         )}
       </Flex>
 
-      {/* Top Risk categories */}
-      {topRisk.length > 0 && (
-        <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>Top Risk</Text>
-          <Flex direction="row" gap="extra-small" wrap="wrap">
-            {topRisk.map((c) => (
-              <Tag key={c.key} variant="error">{c.label}</Tag>
-            ))}
-          </Flex>
-        </Flex>
-      )}
+      <Divider />
 
-      {/* Top Risk Evidence */}
-      {topRisk.length > 0 && (
-        <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>
-            Top Risk Evidence
-          </Text>
-          {topRisk.map((c) => {
-            const evidence = dealData?.[`${c.key}_summary`];
-            return evidence ? (
-              <Text key={c.key} variant="microcopy">
-                {c.label}: {evidence}
+      {/* All MEDDPICC Categories - Evidence */}
+      <Flex direction="column" gap="extra-small">
+        <Text format={{ fontWeight: "bold" }}>
+          Category Evidence
+        </Text>
+        {CATEGORY_KEYS.map((c) => {
+          const evidence = dealData?.[`${c.key}_summary`];
+          const score = dealData?.[`${c.key}_score`];
+          if (!evidence) return null;
+          return (
+            <Flex key={c.key} direction="column"
+              gap="extra-small">
+              <Text format={{ fontWeight: "bold" }}>
+                {c.label}
               </Text>
-            ) : null;
-          })}
-        </Flex>
-      )}
+              <Text variant="microcopy">
+                Evidence: {evidence}
+              </Text>
+            </Flex>
+          );
+        })}
+      </Flex>
 
-      {/* Top Risk Coaching Tips */}
-      {topRisk.length > 0 && (
-        <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>
-            Coaching Tips
-          </Text>
-          {topRisk.map((c) => {
-            const tip = dealData?.[`${c.key}_tip`];
-            return tip ? (
-              <Text key={c.key} variant="microcopy">
-                {c.label}: {tip}
+      <Divider />
+
+      {/* Coaching Tips - only score 0-2 */}
+      <Flex direction="column" gap="extra-small">
+        <Text format={{ fontWeight: "bold" }}>
+          Coaching Tips
+        </Text>
+        {CATEGORY_KEYS.map((c) => {
+          const tip = dealData?.[`${c.key}_tip`];
+          const score = Number(
+            dealData?.[`${c.key}_score`] ?? 3
+          );
+          if (!tip || score >= 3) return null;
+          return (
+            <Flex key={c.key} direction="column"
+              gap="extra-small">
+              <Text format={{ fontWeight: "bold" }}>
+                {c.label}
               </Text>
-            ) : null;
-          })}
-        </Flex>
-      )}
+              <Text variant="microcopy">
+                Tip: {tip}
+              </Text>
+            </Flex>
+          );
+        })}
+      </Flex>
 
       <Divider />
 
       {/* Risk Summary */}
       {dealData?.risk_summary && (
         <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>Risk Summary</Text>
+          <Text format={{ fontWeight: "bold" }}>
+            Risk Summary
+          </Text>
           <Text>{dealData.risk_summary}</Text>
         </Flex>
       )}
@@ -210,7 +218,9 @@ function DealReviewCard({ context, actions }) {
       {/* Next Steps */}
       {dealData?.next_steps && (
         <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>Next Steps</Text>
+          <Text format={{ fontWeight: "bold" }}>
+            Next Steps
+          </Text>
           <Text>{dealData.next_steps}</Text>
         </Flex>
       )}
