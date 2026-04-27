@@ -7,6 +7,8 @@ import {
   LoadingSpinner,
   Text,
   Tag,
+  Accordion,
+  AccordionItem,
 } from "@hubspot/ui-extensions";
 import { hubspot } from "@hubspot/ui-extensions";
 import { useState, useEffect } from "react";
@@ -134,107 +136,166 @@ function DealReviewCard({ context, actions }) {
   return (
     <Flex direction="column" gap="medium">
 
-      {/* Health + Verdict + Confidence */}
+      {/* TOP SECTION */}
+      <Heading>SalesForecast.io</Heading>
+
+      {/* Pills row 1: Initial Health, Health, Evidence, AI Forecast */}
       <Flex direction="row" gap="small" wrap="wrap">
+        {dealData?.baseline_health_score != null && (
+          <Tag variant={healthVariant(
+            Math.round((Number(dealData.baseline_health_score) / 30) * 100)
+          )}>
+            Initial {Math.round((Number(dealData.baseline_health_score) / 30) * 100)}%
+          </Tag>
+        )}
         {health != null && (
           <Tag variant={healthVariant(health)}>
             Health {health}%
           </Tag>
         )}
-        {verdict && <Tag>AI: {verdict}</Tag>}
         {confidence && (
           <Tag variant={confidenceVariant(confidence)}>
             {confidence.charAt(0).toUpperCase() +
-              confidence.slice(1)} Confidence
+              confidence.slice(1)}
+          </Tag>
+        )}
+        {verdict && (
+          <Tag variant={
+            verdict.toLowerCase() === "commit" ? "success" :
+            verdict.toLowerCase() === "best case" ? "warning" :
+            "default"
+          }>
+            AI: {verdict}
           </Tag>
         )}
       </Flex>
 
+      {/* MEDDPICC+TB pills color coded by score */}
+      <Flex direction="row" gap="extra-small" wrap="wrap">
+        {CATEGORY_KEYS.map((c) => {
+          const score = Number(dealData?.[`${c.key}_score`] ?? 0);
+          const variant =
+            score >= 3 ? "success" :
+            score >= 2 ? "warning" :
+            "error";
+          return (
+            <Tag key={c.key} variant={variant}>
+              {c.label}
+            </Tag>
+          );
+        })}
+      </Flex>
+
+      {/* Manager Request for Matthew Review */}
+      <Button
+        variant="secondary"
+        onClick={() => {
+          if (!dealData?.public_id) return;
+          actions.navigateToExternalUrl({
+            url: `https://forecast-agent-api.onrender.com/opportunities/${dealData.public_id}/deal-review?requestReview=true`,
+            newTab: true,
+          });
+        }}
+      >
+        Request Matthew Review
+      </Button>
+
       <Divider />
 
-      {/* All MEDDPICC Categories - Evidence */}
-      <Flex direction="column" gap="extra-small">
-        <Text format={{ fontWeight: "bold" }}>
-          Category Evidence
-        </Text>
+      {/* Start Full Review button */}
+      <Button variant="primary" onClick={handleFullReview}>
+        ▶ Start Full Review ↗
+      </Button>
+
+      <Divider />
+
+      {/* MEDDPICC+TB ACCORDION SECTION */}
+      <Accordion>
         {CATEGORY_KEYS.map((c) => {
+          const score = Number(dealData?.[`${c.key}_score`] ?? 0);
           const evidence = dealData?.[`${c.key}_summary`];
-          const score = dealData?.[`${c.key}_score`];
-          if (!evidence) return null;
-          return (
-            <Flex key={c.key} direction="column"
-              gap="extra-small">
-              <Text format={{ fontWeight: "bold" }}>
-                {c.label}
-              </Text>
-              <Text variant="microcopy">
-                Evidence: {evidence}
-              </Text>
-            </Flex>
-          );
-        })}
-      </Flex>
-
-      <Divider />
-
-      {/* Coaching Tips - only score 0-2 */}
-      <Flex direction="column" gap="extra-small">
-        <Text format={{ fontWeight: "bold" }}>
-          Coaching Tips
-        </Text>
-        {CATEGORY_KEYS.map((c) => {
           const tip = dealData?.[`${c.key}_tip`];
-          const score = Number(
-            dealData?.[`${c.key}_score`] ?? 3
-          );
-          if (!tip || score >= 3) return null;
+          const scoreVariant =
+            score >= 3 ? "success" :
+            score >= 2 ? "warning" :
+            "error";
           return (
-            <Flex key={c.key} direction="column"
-              gap="extra-small">
-              <Text format={{ fontWeight: "bold" }}>
-                {c.label}
-              </Text>
-              <Text variant="microcopy">
-                Tip: {tip}
-              </Text>
-            </Flex>
+            <AccordionItem
+              key={c.key}
+              title={
+                <Flex direction="row" gap="small"
+                  align="center">
+                  <Text format={{ fontWeight: "bold" }}>
+                    {c.label}
+                  </Text>
+                  <Tag variant={scoreVariant}>
+                    {score}/3
+                  </Tag>
+                </Flex>
+              }
+            >
+              <Flex direction="column" gap="extra-small">
+                {evidence && (
+                  <Text variant="microcopy">
+                    Evidence: {evidence}
+                  </Text>
+                )}
+                {tip && score < 3 && (
+                  <Text variant="microcopy"
+                    format={{ color: "alert" }}>
+                    Tip: {tip}
+                  </Text>
+                )}
+                {!evidence && !tip && (
+                  <Text variant="microcopy">
+                    No data yet — complete a Matthew review
+                    to populate this category.
+                  </Text>
+                )}
+              </Flex>
+            </AccordionItem>
           );
         })}
-      </Flex>
+      </Accordion>
 
       <Divider />
 
-      {/* Risk Summary */}
-      {dealData?.risk_summary && (
-        <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>
-            Risk Summary
-          </Text>
-          <Text>{dealData.risk_summary}</Text>
-        </Flex>
-      )}
-
-      {/* Next Steps */}
-      {dealData?.next_steps && (
-        <Flex direction="column" gap="extra-small">
-          <Text format={{ fontWeight: "bold" }}>
-            Next Steps
-          </Text>
-          <Text>{dealData.next_steps}</Text>
-        </Flex>
-      )}
+      {/* RISK SUMMARY + NEXT STEPS ACCORDION */}
+      <Accordion>
+        <AccordionItem title="Risk Summary & Next Steps">
+          <Flex direction="column" gap="small">
+            {dealData?.risk_summary && (
+              <Flex direction="column" gap="extra-small">
+                <Text format={{ fontWeight: "bold" }}>
+                  Risk Summary
+                </Text>
+                <Text>{dealData.risk_summary}</Text>
+              </Flex>
+            )}
+            {dealData?.next_steps && (
+              <Flex direction="column" gap="extra-small">
+                <Text format={{ fontWeight: "bold" }}>
+                  Next Steps
+                </Text>
+                <Text>{dealData.next_steps}</Text>
+              </Flex>
+            )}
+            {!dealData?.risk_summary && !dealData?.next_steps && (
+              <Text variant="microcopy">
+                No risk summary yet — complete a Matthew
+                review to generate one.
+              </Text>
+            )}
+          </Flex>
+        </AccordionItem>
+      </Accordion>
 
       <Divider />
 
-      {/* Action buttons */}
-      <Flex direction="column" gap="small">
-        <Button variant="primary" onClick={handleFullReview}>
-          ▶ Start Full Review ↗
-        </Button>
-        <Link onClick={handleOpenDashboard}>
-          Open Dashboard →
-        </Link>
-      </Flex>
+      {/* Open Dashboard */}
+      <Link onClick={handleOpenDashboard}>
+        Open Dashboard →
+      </Link>
 
     </Flex>
   );
