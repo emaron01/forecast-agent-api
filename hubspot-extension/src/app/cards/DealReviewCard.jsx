@@ -57,10 +57,9 @@ function DealReviewCard({ context, actions }) {
   }, []);
 
   function handleFullReview() {
-    if (!tokens?.review) return;
-    const publicId = dealData?.public_id || "";
+    if (!dealData?.public_id) return;
     actions.navigateToExternalUrl({
-      url: `https://forecast-agent-api.onrender.com/api/crm/hubspot/extension/session?token=${encodeURIComponent(tokens.review)}&mode=voice`,
+      url: `https://forecast-agent-api.onrender.com/opportunities/${dealData.public_id}/deal-review`,
       newTab: true,
     });
   }
