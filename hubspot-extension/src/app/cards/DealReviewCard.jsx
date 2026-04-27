@@ -8,6 +8,7 @@ import {
   Text,
   Tag,
   Accordion,
+  Alert,
 } from "@hubspot/ui-extensions";
 import { hubspot } from "@hubspot/ui-extensions";
 import { useState, useEffect } from "react";
@@ -168,6 +169,21 @@ function DealReviewCard({ context, actions }) {
           );
         })}
       </Flex>
+
+      {dealData?.review_request_note && (
+        <Alert title="Matthew Review Requested" variant="warning">
+          <Flex direction="column" gap="extra-small">
+            <Text>
+              {dealData.review_requested_by_name
+                ? `${dealData.review_requested_by_name} has requested a Matthew review.`
+                : "A Matthew review has been requested."}
+            </Text>
+            <Text format={{ fontWeight: "bold" }}>
+              Manager note: "{dealData.review_request_note}"
+            </Text>
+          </Flex>
+        </Alert>
+      )}
 
       {/* Manager Request for Matthew Review */}
       <Button

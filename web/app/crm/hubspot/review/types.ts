@@ -16,6 +16,9 @@ export type HubSpotDealState = {
   health_pct: number | null;
   confidence_band: string | null;
   ai_verdict: string | null;
+  review_request_note: string | null;
+  review_requested_at: string | null;
+  review_requested_by_name: string | null;
   pain_score: number | null;
   metrics_score: number | null;
   champion_score: number | null;

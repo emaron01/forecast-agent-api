@@ -33,6 +33,9 @@ function toDealState(row: any): HubSpotDealState {
     health_pct,
     confidence_band: null,
     ai_verdict: row.ai_verdict ?? null,
+    review_request_note: row.review_request_note ?? null,
+    review_requested_at: row.review_requested_at ?? null,
+    review_requested_by_name: row.review_requested_by_name ?? null,
     pain_score: row.pain_score ?? null,
     metrics_score: row.metrics_score ?? null,
     champion_score: row.champion_score ?? null,
@@ -130,6 +133,12 @@ export async function POST(req: Request) {
          o.next_steps,
          o.health_score,
          o.ai_verdict,
+         o.review_request_note,
+         o.review_requested_at::text AS review_requested_at,
+         COALESCE(
+           NULLIF(btrim(u_req.first_name || ' ' || u_req.last_name), ''),
+           NULLIF(btrim(u_req.email), '')
+         ) AS review_requested_by_name,
          o.champion_name,
          o.champion_title,
          o.eb_name,
@@ -153,6 +162,8 @@ export async function POST(req: Request) {
          NULLIF(btrim(o.partner_name), '') AS partner_name
        FROM opportunities o
        LEFT JOIN reps r ON r.id = o.rep_id
+       LEFT JOIN users u_req
+         ON u_req.id = o.review_requested_by
       WHERE o.crm_opp_id = $1
         AND o.org_id = $2
       LIMIT 1`,
