@@ -430,8 +430,24 @@ export async function runHubSpotIngest(params: {
     const { after, before } = getHubspotScoringCloseDateBounds();
     const extraProps = mappingRows
       .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
-      .map((r) => String(r.hubspot_property || "").trim())
-      .filter((p) => p && p !== "notes_source" && !p.startsWith("{"));
+      .flatMap((r) => {
+        const raw = String(r.hubspot_property || "").trim();
+        if (!raw || r.sf_field === "notes_source") return [];
+        if (raw.startsWith("{")) {
+          // Extract custom_property from notes_source JSON
+          try {
+            const j = JSON.parse(raw);
+            const cp = typeof j?.custom_property === "string" && j.custom_property.trim()
+              ? j.custom_property.trim()
+              : null;
+            return cp ? [cp] : [];
+          } catch {
+            return [];
+          }
+        }
+        return [raw];
+      })
+      .filter((p) => Boolean(p));
 
     const ownerMap = new Map<string, string>();
     const ownersRes = await getOwners(orgId);
@@ -564,8 +580,24 @@ export async function syncHubSpotDealMetadataOnly(args: { orgId: number; dealId:
 
     const extraProps = mappingRows
       .filter((r) => !["company_name", "crm_opp_id", "create_date"].includes(r.sf_field))
-      .map((r) => String(r.hubspot_property || "").trim())
-      .filter((p) => p && p !== "notes_source" && !p.startsWith("{"));
+      .flatMap((r) => {
+        const raw = String(r.hubspot_property || "").trim();
+        if (!raw || r.sf_field === "notes_source") return [];
+        if (raw.startsWith("{")) {
+          // Extract custom_property from notes_source JSON
+          try {
+            const j = JSON.parse(raw);
+            const cp = typeof j?.custom_property === "string" && j.custom_property.trim()
+              ? j.custom_property.trim()
+              : null;
+            return cp ? [cp] : [];
+          } catch {
+            return [];
+          }
+        }
+        return [raw];
+      })
+      .filter((p) => Boolean(p));
     const dealRes = await getDealByIdWithCompany(orgId, dealId, extraProps);
     if (dealRes.ok === false || !dealRes.data) return;
     const closeRaw = dealRes.data.properties?.closedate ?? dealRes.data.properties?.hs_closedate;
