@@ -38,6 +38,7 @@ import {
   roleToHierarchyLevel,
 } from "../../../lib/roleHelpers";
 
+export const dynamic = 'force-dynamic';
 export const runtime = "nodejs";
 
 function serverAppBaseUrl() {

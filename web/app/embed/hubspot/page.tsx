@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { resolveHubSpotDeal, getOrCreateEmbedUser, createEmbedSession } from "../../../lib/embedAuth";
 
+export const dynamic = 'force-dynamic';
+
 function EmbedError({ message }: { message: string }) {
   return (
     <html>
