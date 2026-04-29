@@ -31,6 +31,7 @@ import { buildChannelTeamPayload, type BuildChannelTeamPayloadResult } from "../
 import { CHANNEL_HIERARCHY_LEVELS, HIERARCHY, isAdmin, isSalesLeader } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
+export const dynamic = 'force-dynamic';
 export const runtime = "nodejs";
 
 export default async function ExecutiveDashboardPage({
