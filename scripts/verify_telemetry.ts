@@ -11,7 +11,7 @@
 
 import "dotenv/config";
 import pg from "pg";
-import { handleFunctionCall } from "../muscle.js";
+import { handleFunctionCall } from "../web/lib/forecast/muscle.js";
 
 const dbUrl = process.env.DATABASE_URL;
 if (!dbUrl?.trim()) {

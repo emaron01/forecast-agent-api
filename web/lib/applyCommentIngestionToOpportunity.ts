@@ -4,7 +4,7 @@
  * via muscle save_deal_data with source ai_notes.
  */
 
-import { handleFunctionCall } from "../../muscle.js";
+import { handleFunctionCall } from "./forecast/muscle.js";
 import { pool } from "./pool";
 import { listScoreDefinitions, type ScoreDefRow } from "./db";
 import { isClosedOpportunityRow } from "./opportunityOutcome";

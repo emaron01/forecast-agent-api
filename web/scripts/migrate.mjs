@@ -3,14 +3,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
-function getRepoRootDir() {
+function getWebRootDir() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename); // .../web/scripts
-  return path.resolve(__dirname, "..", ".."); // repo root
+  return path.resolve(__dirname, ".."); // web root
 }
 
 function getMigrationsDir() {
-  return path.join(getRepoRootDir(), "migrations");
+  return path.join(getWebRootDir(), "migrations");
 }
 
 async function listSqlFiles(dir) {
@@ -28,8 +28,8 @@ async function loadSql(filePath) {
 
 function loadLocalEnvIfPresent() {
   // When running under Render, env vars come from platform.
-  // For local runs, load `.env` / `.env.local` from `web/`.
-  const webDir = path.join(getRepoRootDir(), "web");
+  // For local runs, load `.env` / `.env.local` from the web root.
+  const webDir = getWebRootDir();
   const envPath = path.join(webDir, ".env");
   const envLocalPath = path.join(webDir, ".env.local");
   dotenv.config({ path: envPath, override: false });

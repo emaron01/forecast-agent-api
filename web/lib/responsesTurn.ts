@@ -3,7 +3,7 @@ import { buildNoDealsPrompt, buildPrompt, computeFirstGap } from "./prompt";
 import { loadScoringDiscipline, loadConversationalRules, promptHash } from "./masterDcoPrompt";
 import { buildTools } from "./tools";
 import { extractSentences } from "./voiceStreaming";
-import { handleFunctionCall } from "../../muscle.js";
+import { handleFunctionCall } from "./forecast/muscle.js";
 import { getQuestionPack } from "./db";
 
 export type ForecastSession = {

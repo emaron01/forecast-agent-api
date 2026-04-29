@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { categoryUpdateSessions, type CategoryKey } from "../../../../opportunities/categoryUpdateSessions";
-import { handleFunctionCall } from "../../../../../../../muscle.js";
+import { handleFunctionCall } from "../../../../../../lib/forecast/muscle.js";
 import { pool } from "../../../../../../lib/pool";
 import { getQuestionPack } from "../../../../../../lib/db";
 import { getAuth } from "../../../../../../lib/auth";

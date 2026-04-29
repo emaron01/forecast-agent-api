@@ -17,7 +17,7 @@ declare global {
 }
 
 function defaultPromptPath() {
-  return "prompts/AI_STRATEGIC_TAKEAWAY_PROMPT_SHEET.md";
+  return path.join(process.cwd(), "prompts", "AI_STRATEGIC_TAKEAWAY_PROMPT_SHEET.md");
 }
 
 export async function loadAiStrategicTakeawayPrompt(): Promise<AiStrategicTakeawayPromptRecord> {

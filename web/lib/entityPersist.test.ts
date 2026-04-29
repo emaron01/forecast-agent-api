@@ -1,9 +1,9 @@
 /**
  * Unit tests for entity persist merge rules (don't overwrite existing with empty; quality comparison).
- * Helpers live in muscle.js and are exported for testing.
+ * Helpers live in forecast/muscle.js and are exported for testing.
  */
-// @ts-ignore root ESM
-import { isBetterName, isBetterTitle, mergeEntityValue } from "../../muscle.js";
+// @ts-ignore JS ESM
+import { isBetterName, isBetterTitle, mergeEntityValue } from "./forecast/muscle.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 

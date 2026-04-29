@@ -1,5 +1,5 @@
 const fs = require("fs");
-const path = "web/components/dashboard/executive/ExecutiveGapInsightsClient.tsx";
+const path = "components/dashboard/executive/ExecutiveGapInsightsClient.tsx";
 const lines = fs.readFileSync(path, "utf8").split(/\r?\n/);
 const heroLines = lines.slice(2433, 2677);
 const heroContent = heroLines.join("\n");

@@ -49,32 +49,27 @@ const CONVERSATIONAL_TERMS_IN_INGEST = [
 ];
 
 function resolvePath(
-  defaultRelativePath: string,
+  defaultFileName: string,
   envOverride: string
 ): string {
   const envPath = String(envOverride || "").trim();
-  const sourcePath = envPath || defaultRelativePath;
+  const sourcePath = envPath || path.join("prompts", defaultFileName);
 
   const isWindowsDriveAbs = /^[a-zA-Z]:[\\/]/.test(sourcePath);
   if (path.isAbsolute(sourcePath) || isWindowsDriveAbs) return sourcePath;
 
   if (!envPath) {
-    const candidates = [
-      path.resolve(process.cwd(), sourcePath),
-      path.resolve(process.cwd(), "web", sourcePath),
-    ];
-    const existing = candidates.find((p) => fs.existsSync(p));
-    return existing || candidates[0];
+    return path.join(process.cwd(), "prompts", defaultFileName);
   }
 
   return path.resolve(process.cwd(), sourcePath);
 }
 
 async function loadPromptFile(
-  defaultRelativePath: string,
+  defaultFileName: string,
   envVar: string
 ): Promise<{ text: string; absPath: string }> {
-  const absPath = resolvePath(defaultRelativePath, process.env[envVar] || "");
+  const absPath = resolvePath(defaultFileName, process.env[envVar] || "");
   if (!fs.existsSync(absPath)) {
     throw new Error(`Prompt file not found: ${absPath}`);
   }
@@ -170,7 +165,7 @@ export async function loadScoringDiscipline(): Promise<MasterPromptRecord> {
   global.__scoringDisciplinePromise__ = (async () => {
     try {
       const { text, absPath } = await loadPromptFile(
-        "prompts/scoring_discipline.txt",
+        "scoring_discipline.txt",
         "SCORING_DISCIPLINE_PATH"
       );
       const rec = toRecord(text, absPath);
@@ -198,7 +193,7 @@ export async function loadConversationalRules(): Promise<MasterPromptRecord> {
   global.__conversationalRulesPromise__ = (async () => {
     try {
       const { text, absPath } = await loadPromptFile(
-        "prompts/conversational_rules.txt",
+        "conversational_rules.txt",
         "CONVERSATIONAL_RULES_PATH"
       );
       const rec = toRecord(text, absPath);
@@ -233,7 +228,7 @@ export async function loadIngestRules(): Promise<MasterPromptRecord> {
   global.__ingestRulesPromise__ = (async () => {
     try {
       const { text, absPath } = await loadPromptFile(
-        "prompts/ingest_rules.txt",
+        "ingest_rules.txt",
         "INGEST_RULES_PATH"
       );
       const rec = toRecord(text, absPath);

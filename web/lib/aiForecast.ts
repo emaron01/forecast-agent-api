@@ -1,7 +1,7 @@
 /**
  * Centralized AI Forecast formula. Single source of truth for health_score → bucket mapping.
  * ai_verdict may be adjusted by Commit Admission AFTER ai_forecast is computed.
- * Root aiForecast.js mirrors this for muscle.js (Node).
+ * forecast/aiForecast.js mirrors this for muscle.js (Node).
  */
 
 import { isClosedStage, normalizeClosedForecast } from "./opportunityOutcome";
