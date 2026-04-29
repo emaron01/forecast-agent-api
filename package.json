@@ -7,7 +7,6 @@
     "dev:web": "npm --prefix web run dev",
     "build:web": "npm --prefix web run build",
     "start:web": "npm --prefix web run start",
-    "postinstall": "npm --prefix web install",
     "migrate": "node scripts/migrate.mjs",
     "dev": "npm run dev:web",
     "build": "npm run build:web",
