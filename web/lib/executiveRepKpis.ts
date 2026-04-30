@@ -2,6 +2,19 @@ import { channelDealScopeIsEmpty, channelDealScopeWhereStrict } from "./channelD
 import { pool } from "./pool";
 import { crmBucketCaseSql } from "./crmBucketCaseSql";
 
+function createDateSql(rowAlias: string) {
+  const raw = `NULLIF(btrim(${rowAlias}.create_date_raw), '')`;
+  return `
+COALESCE(
+  CASE
+    WHEN ${raw} ~ '^\\d{1,2}/\\d{1,2}/\\d{4}' THEN to_date(substring(${raw} from '^(\\d{1,2}/\\d{1,2}/\\d{4})'), 'FMMM/FMDD/YYYY')::timestamptz
+    ELSE NULL
+  END,
+  try_parse_timestamptz(${rowAlias}.create_date_raw),
+  ${rowAlias}.create_date
+)`.trim();
+}
+
 export type QuotaByRepPeriodRow = { quota_period_id: string; rep_id: string; quota_amount: number };
 
 export type RepPeriodKpisRow = {
@@ -93,7 +106,7 @@ export async function getRepKpisByPeriod(args: {
         o.partner_name,
         o.forecast_stage,
         o.sales_stage,
-        COALESCE(try_parse_timestamptz(o.create_date_raw), o.create_date) AS create_date,
+        ${createDateSql("o")} AS create_date,
         o.close_date,
         lower(
           regexp_replace(
@@ -160,21 +173,21 @@ export async function getRepKpisByPeriod(args: {
       AVG(
         CASE
           WHEN is_won AND create_date IS NOT NULL AND close_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          THEN close_date::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_won,
       AVG(
         CASE
           WHEN is_lost AND create_date IS NOT NULL AND close_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          THEN close_date::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_lost,
       AVG(
         CASE
           WHEN is_active AND create_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (LEAST(NOW(), period_end_ts) - create_date)) / 86400.0
+          THEN LEAST(NOW(), period_end_ts)::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_active
@@ -258,7 +271,7 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.partner_name,
-        COALESCE(try_parse_timestamptz(o.create_date_raw), o.create_date) AS create_date,
+        ${createDateSql("o")} AS create_date,
         o.close_date,
         o.forecast_stage,
         o.sales_stage,
@@ -317,21 +330,21 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
       AVG(
         CASE
           WHEN is_won AND create_date IS NOT NULL AND close_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          THEN close_date::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_won,
       AVG(
         CASE
           WHEN is_lost AND create_date IS NOT NULL AND close_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (close_date::timestamptz - create_date)) / 86400.0
+          THEN close_date::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_lost,
       AVG(
         CASE
           WHEN is_active AND create_date IS NOT NULL
-          THEN EXTRACT(EPOCH FROM (LEAST(NOW(), period_end_ts) - create_date)) / 86400.0
+          THEN LEAST(NOW(), period_end_ts)::date - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_active

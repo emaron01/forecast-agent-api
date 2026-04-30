@@ -274,8 +274,14 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   };
 }
 
-function aggregateAnnualTeam(fyRows: TeamLeaderboardFyQuarterRow[], repIntIds: string[]) {
-  const rows = fyRows.filter((r) => repIntIds.includes(r.rep_int_id));
+function aggregateAnnualTeam(fyRows: TeamLeaderboardFyQuarterRow[], repIntIds: string[], throughPeriodId?: string) {
+  const throughRow = throughPeriodId ? fyRows.find((r) => String(r.period_id) === String(throughPeriodId)) : null;
+  const throughQuarter = throughRow ? quarterSortValue(throughRow.fiscal_quarter) : null;
+  const rows = fyRows.filter(
+    (r) =>
+      repIntIds.includes(r.rep_int_id) &&
+      (throughQuarter == null || quarterSortValue(r.fiscal_quarter) <= throughQuarter)
+  );
   const wonAmount = rows.reduce((s, r) => s + r.won_amount, 0);
   const wonCount = rows.reduce((s, r) => s + (r.won_count ?? 0), 0);
   const lostAmount = rows.reduce((s, r) => s + (r.lost_amount ?? 0), 0);
@@ -728,6 +734,19 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             ))}
           </div>
 
+          <div className="mt-2 flex flex-wrap items-start gap-6">
+            {[
+              { label: "Q Avg Days to Close", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Q Avg Days Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+              { label: "Q Avg Deal Age", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
+            ].map((stat) => (
+              <div key={stat.label} className="flex items-baseline gap-1">
+                <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
+                <span className={`shrink-0 text-base font-semibold ${stat.color}`}>{stat.value}</span>
+              </div>
+            ))}
+          </div>
+
           {((args.annualAovWon != null && args.annualAovWon > 0) ||
           (args.annualAovLost != null && args.annualAovLost > 0) ||
           (args.annualAovOpen != null && args.annualAovOpen > 0)) && (
@@ -748,27 +767,14 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
             </>
           )}
 
-          <div className="mt-2 flex flex-wrap items-start gap-6">
-            {[
-              { label: "Q Avg Days to Close", value: args.avgDaysWon != null ? `${Math.round(args.avgDaysWon)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
-              { label: "Q Avg Days Lost", value: args.avgDaysLost != null ? `${Math.round(args.avgDaysLost)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
-              { label: "Q Avg Deal Age", value: args.avgDaysActive != null ? `${Math.round(args.avgDaysActive)}d` : "—", color: "text-[color:var(--sf-text-primary)]" },
-            ].map((stat) => (
-              <div key={stat.label} className="flex items-baseline gap-1">
-                <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
-                <span className={`shrink-0 text-base font-semibold ${stat.color}`}>{stat.value}</span>
-              </div>
-            ))}
-          </div>
-
           {(args.annualAvgDaysWon != null || args.annualAvgDaysLost != null || args.annualAvgDaysActive != null) && (
             <>
               <div className="my-2 border-t border-[color:var(--sf-border)]" />
               <div className="mt-2 flex flex-wrap items-start gap-6">
                 {[
-                  { label: "Annual Avg Days to Close", value: args.annualAvgDaysWon != null ? `${Math.round(args.annualAvgDaysWon)}d` : "—" },
-                  { label: "Annual Avg Days Lost", value: args.annualAvgDaysLost != null ? `${Math.round(args.annualAvgDaysLost)}d` : "—" },
-                  { label: "Annual Avg Deal Age", value: args.annualAvgDaysActive != null ? `${Math.round(args.annualAvgDaysActive)}d` : "—" },
+                  { label: "YTD Avg Days to Close", value: args.annualAvgDaysWon != null ? `${Math.round(args.annualAvgDaysWon)}d` : "—" },
+                  { label: "YTD Avg Days Lost", value: args.annualAvgDaysLost != null ? `${Math.round(args.annualAvgDaysLost)}d` : "—" },
+                  { label: "YTD Avg Deal Age", value: args.annualAvgDaysActive != null ? `${Math.round(args.annualAvgDaysActive)}d` : "—" },
                 ].map((stat) => (
                   <div key={stat.label} className="flex items-baseline gap-1">
                     <span className="shrink-0 text-base text-[color:var(--sf-text-secondary)]">{stat.label}:</span>
@@ -849,7 +855,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
       repNames: [rep.rep_name],
       fallbackAov: rep.aov ?? 0,
     });
-    const annual = aggregateAnnualTeam(allPeriodRows ?? [], [String(rep.rep_id)]);
+    const annual = aggregateAnnualTeam(allPeriodRows ?? [], [String(rep.rep_id)], quotaPeriodId);
     const ytdProductSummary = getProductSummary({
       input: productsClosedWonByRepYtd,
       repIds: [String(rep.rep_id)],
@@ -959,7 +965,7 @@ export function TeamLeaderboardClient(props: TeamLeaderboardProps) {
     const effectiveWonCount = managerWonCountOverride ?? current.wonCount;
 
     const repIntIds = subtreeRepIntIds;
-    const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds);
+    const annual = aggregateAnnualTeam(allPeriodRows ?? [], repIntIds, quotaPeriodId);
     const leaderRollupRows = (allPeriodRows ?? []).filter(
       (r) => String(r.rep_int_id) === "__DEDUPED_CHANNEL_ROLLUP__"
     );

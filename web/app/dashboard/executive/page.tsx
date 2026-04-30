@@ -1674,81 +1674,87 @@ export default async function ExecutiveDashboardPage({
       .map((p) => String(p.id));
 
     if (fyPeriodIds.length > 0 && teamRepIds.length > 0) {
-      const { rows } = await pool.query<{
-        rep_id: string;
-        rep_int_id: string;
-        period_id: string;
-        period_name: string;
-        fiscal_quarter: string;
-        won_amount: number;
-        won_count: number;
-        lost_amount: number;
-        lost_count: number;
-        pipeline_amount: number;
-        active_count: number;
-        quota: number;
-      }>(
-        `
-        WITH bucketed AS (
+      const [fyRollupResult, fyKpiRows] = await Promise.all([
+        pool.query<{
+          rep_id: string;
+          rep_int_id: string;
+          period_id: string;
+          period_name: string;
+          fiscal_quarter: string;
+          won_amount: number;
+          won_count: number;
+          lost_amount: number;
+          lost_count: number;
+          pipeline_amount: number;
+          active_count: number;
+          quota: number;
+        }>(
+          `
+          WITH bucketed AS (
+            SELECT
+              o.amount,
+              o.close_date,
+              o.rep_id,
+              (${crmBucketCaseSql("o")}) AS crm_bucket
+            FROM opportunities o
+            LEFT JOIN org_stage_mappings stm
+              ON stm.org_id = o.org_id
+             AND stm.field = 'stage'
+             AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+            LEFT JOIN org_stage_mappings fcm
+              ON fcm.org_id = o.org_id
+             AND fcm.field = 'forecast_category'
+             AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
+            WHERE o.org_id = $1::bigint
+          )
           SELECT
-            o.amount,
-            o.close_date,
-            o.rep_id,
-            (${crmBucketCaseSql("o")}) AS crm_bucket
-          FROM opportunities o
-          LEFT JOIN org_stage_mappings stm
-            ON stm.org_id = o.org_id
-           AND stm.field = 'stage'
-           AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
-          LEFT JOIN org_stage_mappings fcm
-            ON fcm.org_id = o.org_id
-           AND fcm.field = 'forecast_category'
-           AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
-          WHERE o.org_id = $1::bigint
-        )
-        SELECT
-          r.public_id::text AS rep_id,
-          r.id::text AS rep_int_id,
-          qp.id::text AS period_id,
-          qp.period_name,
-          qp.fiscal_quarter::text AS fiscal_quarter,
-          COALESCE(SUM(
-            CASE WHEN o.crm_bucket = 'won' THEN o.amount ELSE 0 END
-          ), 0)::float8 AS won_amount,
-          COALESCE(SUM(CASE
-            WHEN o.crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
-          COALESCE(SUM(CASE
-            WHEN o.crm_bucket = 'lost' THEN o.amount ELSE 0 END), 0)::float8 AS lost_amount,
-          COALESCE(SUM(CASE
-            WHEN o.crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
-          COALESCE(SUM(CASE
-            WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN o.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
-          COALESCE(SUM(CASE
-            WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN 1 ELSE 0 END), 0)::int AS active_count,
-          COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
-        FROM reps r
-        JOIN quota_periods qp
-          ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-         AND qp.id = ANY($2::bigint[])
-        LEFT JOIN bucketed o
-          ON o.rep_id = r.id
-         AND o.close_date >= qp.period_start
-         AND o.close_date <= qp.period_end
-        LEFT JOIN quotas q
-          ON q.rep_id = r.id
-         AND q.quota_period_id = qp.id
-         AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
-        WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
-          AND r.id = ANY($3::bigint[])
-        GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
-        ORDER BY qp.period_start ASC
-        `,
-        [orgId, fyPeriodIds.map(Number), teamRepIds]
-      );
+            r.public_id::text AS rep_id,
+            r.id::text AS rep_int_id,
+            qp.id::text AS period_id,
+            qp.period_name,
+            qp.fiscal_quarter::text AS fiscal_quarter,
+            COALESCE(SUM(
+              CASE WHEN o.crm_bucket = 'won' THEN o.amount ELSE 0 END
+            ), 0)::float8 AS won_amount,
+            COALESCE(SUM(CASE
+              WHEN o.crm_bucket = 'won' THEN 1 ELSE 0 END), 0)::int AS won_count,
+            COALESCE(SUM(CASE
+              WHEN o.crm_bucket = 'lost' THEN o.amount ELSE 0 END), 0)::float8 AS lost_amount,
+            COALESCE(SUM(CASE
+              WHEN o.crm_bucket = 'lost' THEN 1 ELSE 0 END), 0)::int AS lost_count,
+            COALESCE(SUM(CASE
+              WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN o.amount ELSE 0 END), 0)::float8 AS pipeline_amount,
+            COALESCE(SUM(CASE
+              WHEN o.crm_bucket IN ('commit', 'best_case', 'pipeline') THEN 1 ELSE 0 END), 0)::int AS active_count,
+            COALESCE(MAX(q.quota_amount), 0)::float8 AS quota
+          FROM reps r
+          JOIN quota_periods qp
+            ON qp.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+           AND qp.id = ANY($2::bigint[])
+          LEFT JOIN bucketed o
+            ON o.rep_id = r.id
+           AND o.close_date >= qp.period_start
+           AND o.close_date <= qp.period_end
+          LEFT JOIN quotas q
+            ON q.rep_id = r.id
+           AND q.quota_period_id = qp.id
+           AND q.org_id = COALESCE(r.organization_id, r.org_id::bigint)
+          WHERE COALESCE(r.organization_id, r.org_id::bigint) = $1::bigint
+            AND r.id = ANY($3::bigint[])
+          GROUP BY r.id, qp.id, qp.period_name, qp.fiscal_quarter, qp.period_start
+          ORDER BY qp.period_start ASC
+          `,
+          [orgId, fyPeriodIds.map(Number), teamRepIds]
+        ),
+        getRepKpisByPeriod({ orgId, periodIds: fyPeriodIds, repIds: teamRepIds }),
+      ]);
 
-      repFyQuarterRows = (rows ?? []).map((r) => {
+      const avgDaysByPeriodRep = new Map((fyKpiRows ?? []).map((r) => [`${r.quota_period_id}|${r.rep_id}`, r]));
+
+      repFyQuarterRows = (fyRollupResult.rows ?? []).map((r) => {
         const wonAmount = Number(r.won_amount || 0) || 0;
         const quota = Number(r.quota || 0) || 0;
+        const kpis = avgDaysByPeriodRep.get(`${r.period_id}|${r.rep_int_id}`) || null;
         return {
           rep_id: String(r.rep_id),
           rep_int_id: String(r.rep_int_id),
@@ -1761,9 +1767,9 @@ export default async function ExecutiveDashboardPage({
           lost_count: Number(r.lost_count || 0) || 0,
           pipeline_amount: Number(r.pipeline_amount || 0) || 0,
           active_count: Number(r.active_count || 0) || 0,
-          avg_days_won: null,
-          avg_days_lost: null,
-          avg_days_active: null,
+          avg_days_won: kpis?.avg_days_won ?? null,
+          avg_days_lost: kpis?.avg_days_lost ?? null,
+          avg_days_active: kpis?.avg_days_active ?? null,
           quota,
           attainment: quota > 0 ? wonAmount / quota : null,
         };

@@ -190,6 +190,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
     const won_amount = c ? Number(c.won_amount || 0) || 0 : 0;
     const won_count = c ? Number(c.won_count || 0) || 0 : 0;
     const active_amount = c ? Number(c.active_amount || 0) || 0 : 0;
+    const active_count = c ? Number(c.active_count || 0) || 0 : 0;
     const lost_count = c ? Number((c as { lost_count?: number }).lost_count || 0) || 0 : 0;
     const lost_amount = c ? Number((c as { lost_amount?: number }).lost_amount || 0) || 0 : 0;
     const commit_amount = c ? Number((c as { commit_amount?: number }).commit_amount || 0) || 0 : 0;
@@ -242,6 +243,7 @@ export async function buildOrgSubtree(args: BuildOrgSubtreeArgs): Promise<{
       won_amount,
       won_count,
       lost_count,
+      active_count,
       lost_amount,
       active_amount,
       commit_amount,
