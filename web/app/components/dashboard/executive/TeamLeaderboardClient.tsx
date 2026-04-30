@@ -224,11 +224,22 @@ function orgLevelProductsToSummary(
 }
 
 function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
-  const average = (values: Array<number | null | undefined>) => {
-    const nums = values
-      .filter((v) => v != null && Number.isFinite(Number(v)))
-      .map((v) => Number(v));
-    return nums.length ? nums.reduce((sum, v) => sum + v, 0) / nums.length : null;
+  const weightedAverage = (
+    rows: RepManagerRepRow[],
+    getValue: (rep: RepManagerRepRow) => number | null | undefined,
+    getWeight: (rep: RepManagerRepRow) => number
+  ) => {
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const rep of rows) {
+      const value = getValue(rep);
+      const weight = getWeight(rep);
+      if (value != null && Number.isFinite(Number(value)) && Number.isFinite(weight) && weight > 0) {
+        weightedSum += Number(value) * weight;
+        totalWeight += weight;
+      }
+    }
+    return totalWeight > 0 ? weightedSum / totalWeight : null;
   };
   const getLostAmount = (rep: RepManagerRepRow) => Number((rep as RepManagerRepRow & { lost_amount?: number }).lost_amount || 0) || 0;
   const quota = reps.reduce((sum, rep) => sum + (Number(rep.quota) || 0), 0);
@@ -242,9 +253,9 @@ function aggregateCurrentTeam(reps: RepManagerRepRow[]) {
   const wonCount = reps.reduce((sum, rep) => sum + (Number(rep.won_count) || 0), 0);
   const lostCount = reps.reduce((sum, rep) => sum + (Number(rep.lost_count) || 0), 0);
   const aov = wonCount > 0 ? wonAmount / wonCount : 0;
-  const avgDaysWon = average(reps.map((rep) => rep.avg_days_won));
-  const avgDaysLost = average(reps.map((rep) => rep.avg_days_lost));
-  const avgDaysActive = average(reps.map((rep) => rep.avg_days_active));
+  const avgDaysWon = weightedAverage(reps, (rep) => rep.avg_days_won, (rep) => Number(rep.won_count) || 0);
+  const avgDaysLost = weightedAverage(reps, (rep) => rep.avg_days_lost, (rep) => Number(rep.lost_count) || 0);
+  const avgDaysActive = weightedAverage(reps, (rep) => rep.avg_days_active, (rep) => Number(rep.active_count) || 0);
   return {
     quota,
     wonAmount,
