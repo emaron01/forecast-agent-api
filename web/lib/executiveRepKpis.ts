@@ -187,7 +187,7 @@ export async function getRepKpisByPeriod(args: {
       AVG(
         CASE
           WHEN is_active AND create_date IS NOT NULL
-          THEN LEAST(NOW(), period_end_ts)::date - create_date::date
+          THEN CURRENT_DATE - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_active
@@ -344,7 +344,7 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
       AVG(
         CASE
           WHEN is_active AND create_date IS NOT NULL
-          THEN LEAST(NOW(), period_end_ts)::date - create_date::date
+          THEN CURRENT_DATE - create_date::date
           ELSE NULL
         END
       )::float8 AS avg_days_active
