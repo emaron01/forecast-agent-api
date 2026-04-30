@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
-import path from "node:path";
+import { resolvePromptPath } from "./promptPath";
 
 export type MasterPromptRecord = {
   text: string;
@@ -48,28 +48,11 @@ const CONVERSATIONAL_TERMS_IN_INGEST = [
   "End the rep turn",
 ];
 
-function resolvePath(
-  defaultFileName: string,
-  envOverride: string
-): string {
-  const envPath = String(envOverride || "").trim();
-  const sourcePath = envPath || path.join("prompts", defaultFileName);
-
-  const isWindowsDriveAbs = /^[a-zA-Z]:[\\/]/.test(sourcePath);
-  if (path.isAbsolute(sourcePath) || isWindowsDriveAbs) return sourcePath;
-
-  if (!envPath) {
-    return path.join(process.cwd(), "prompts", defaultFileName);
-  }
-
-  return path.resolve(process.cwd(), sourcePath);
-}
-
 async function loadPromptFile(
   defaultFileName: string,
   envVar: string
 ): Promise<{ text: string; absPath: string }> {
-  const absPath = resolvePath(defaultFileName, process.env[envVar] || "");
+  const absPath = resolvePromptPath(defaultFileName, process.env[envVar] || "");
   if (!fs.existsSync(absPath)) {
     throw new Error(`Prompt file not found: ${absPath}`);
   }

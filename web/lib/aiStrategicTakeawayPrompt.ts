@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import path from "node:path";
+import { resolvePromptPath } from "./promptPath";
 
 export type AiStrategicTakeawayPromptRecord = {
   text: string;
@@ -16,10 +16,6 @@ declare global {
   var __aiStrategicTakeawayPromptPromise__: Promise<AiStrategicTakeawayPromptRecord> | undefined;
 }
 
-function defaultPromptPath() {
-  return path.join(process.cwd(), "prompts", "AI_STRATEGIC_TAKEAWAY_PROMPT_SHEET.md");
-}
-
 export async function loadAiStrategicTakeawayPrompt(): Promise<AiStrategicTakeawayPromptRecord> {
   if (global.__aiStrategicTakeawayPrompt__) return global.__aiStrategicTakeawayPrompt__;
   if (global.__aiStrategicTakeawayPromptPromise__) return global.__aiStrategicTakeawayPromptPromise__;
@@ -27,11 +23,7 @@ export async function loadAiStrategicTakeawayPrompt(): Promise<AiStrategicTakeaw
   global.__aiStrategicTakeawayPromptPromise__ = (async () => {
     try {
       const envPath = String(process.env.AI_STRATEGIC_TAKEAWAY_PROMPT_PATH || "").trim();
-      const sourcePath = envPath || defaultPromptPath();
-
-      const isWindowsDriveAbs = /^[a-zA-Z]:[\\/]/.test(sourcePath);
-      const absPath =
-        path.isAbsolute(sourcePath) || isWindowsDriveAbs ? sourcePath : path.resolve(process.cwd(), sourcePath);
+      const absPath = resolvePromptPath("AI_STRATEGIC_TAKEAWAY_PROMPT_SHEET.md", envPath);
       const buf = await readFile(absPath);
       const text = buf.toString("utf8");
       const sha256 = createHash("sha256").update(buf).digest("hex");

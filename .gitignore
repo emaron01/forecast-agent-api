@@ -11,3 +11,5 @@ web/tsconfig.tsbuildinfo
 
 # HubSpot config file
 hubspot.config.yml
+
+.vercel
