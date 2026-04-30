@@ -93,7 +93,7 @@ export async function getRepKpisByPeriod(args: {
         o.partner_name,
         o.forecast_stage,
         o.sales_stage,
-        o.create_date,
+        COALESCE(try_parse_timestamptz(o.create_date_raw), o.create_date) AS create_date,
         o.close_date,
         lower(
           regexp_replace(
@@ -258,7 +258,7 @@ export async function getAggregatedRepKpisByChannelDealScope(args: {
         p.quota_period_id::text AS quota_period_id,
         COALESCE(o.amount, 0)::float8 AS amount,
         o.partner_name,
-        o.create_date,
+        COALESCE(try_parse_timestamptz(o.create_date_raw), o.create_date) AS create_date,
         o.close_date,
         o.forecast_stage,
         o.sales_stage,
