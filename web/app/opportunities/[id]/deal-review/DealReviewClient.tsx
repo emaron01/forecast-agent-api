@@ -2528,7 +2528,7 @@ export function DealReviewClient(props: {
                 {!readOnly ? (
                   <div className="catBtnRow">
                     <button type="button" onClick={() => void startCategoryUpdate(c.key, false)} disabled={busy || !opportunityId}>
-                      Text Update
+                      Chat Update
                     </button>
                     <button type="button" onClick={() => void startCategoryUpdate(c.key, true)} disabled={busy || !opportunityId}>
                       Voice Update
