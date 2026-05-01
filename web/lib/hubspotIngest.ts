@@ -242,6 +242,18 @@ async function appendSyncLogWarning(syncLogId: string, line: string): Promise<vo
   }
 }
 
+async function appendSyncLogInfo(syncLogId: string, line: string): Promise<void> {
+  await pool.query(
+    `UPDATE hubspot_sync_log
+     SET error_text = CASE
+       WHEN error_text IS NULL THEN $2
+       ELSE error_text || E'\n' || $2
+     END
+     WHERE id = $1`,
+    [syncLogId, line]
+  );
+}
+
 async function enqueueHubSpotCommentScoringJobs(args: {
   orgId: number;
   syncLogId: string;
@@ -490,6 +502,9 @@ export async function runHubSpotIngest(params: {
 
       const newRows: Record<string, unknown>[] = [];
       const excelRows: Array<{ crmOppId: string; rawText: string }> = [];
+      let newDealsScored = 0;
+      let newDealsNoNotes = 0;
+      let dealsUpdated = 0;
 
       for (const deal of deals) {
         const crmId = String(deal.id || "").trim();
@@ -511,9 +526,6 @@ export async function runHubSpotIngest(params: {
         }
 
         const comments = String(raw.__sf_comments__ || "").trim();
-        if (!comments) {
-          await appendSyncLogWarning(syncLogId, `no notes found for deal ${crmId} — ingested without baseline score`);
-        }
 
         const meta = dealMeta.get(crmId);
         const hasBaseline = !!(meta?.hasBaseline || (meta?.runCount ?? 0) > 0);
@@ -522,14 +534,28 @@ export async function runHubSpotIngest(params: {
         if (existsInDb && hasBaseline) {
           const up = await applyMetadataUpsert({ orgId, mappingSetId, rawRow: raw });
           if (up.ok) await updateSyncLog(syncLogId, { deals_upserted: 1 });
+          dealsUpdated++;
         } else if (existsInDb && !hasBaseline && syncType === "manual") {
           const up = await applyMetadataUpsert({ orgId, mappingSetId, rawRow: raw });
           if (up.ok) await updateSyncLog(syncLogId, { deals_upserted: 1 });
+          dealsUpdated++;
+          if (comments) newDealsScored++;
+          else newDealsNoNotes++;
           if (comments) excelRows.push({ crmOppId: crmId, rawText: comments });
         } else {
           newRows.push(raw);
+          if (comments) newDealsScored++;
+          else newDealsNoNotes++;
           if (comments) excelRows.push({ crmOppId: crmId, rawText: comments });
         }
+      }
+
+      const parts: string[] = [];
+      if (newDealsScored > 0) parts.push(`${newDealsScored} new deal(s) scored from CRM notes`);
+      if (dealsUpdated > 0) parts.push(`${dealsUpdated} deal(s) updated`);
+      if (newDealsNoNotes > 0) parts.push(`${newDealsNoNotes} deal(s) had no notes or comments — Matthew will score these during rep reviews`);
+      if (parts.length > 0) {
+        await appendSyncLogInfo(syncLogId, parts.join(" · "));
       }
 
       if (newRows.length) {
