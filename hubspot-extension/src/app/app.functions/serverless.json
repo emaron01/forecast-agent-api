@@ -1,6 +1,0 @@
-{
-  "runtime": "NODE18_X",
-  "timeout": 10,
-  "secrets": ["APP_URL", "HUBSPOT_CLIENT_SECRET"]
-}
-
