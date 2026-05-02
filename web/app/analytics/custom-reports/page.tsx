@@ -9,6 +9,7 @@ import { getHealthAveragesByRepByPeriods } from "../../../lib/analyticsHealth";
 import { TopDealsFiltersClient } from "../quotas/executive/TopDealsFiltersClient";
 import { getScopedRepDirectory } from "../../../lib/repScope";
 import { getMeddpiccAveragesByRepByPeriods } from "../../../lib/meddpiccHealth";
+import { getCreatedByRep } from "../../../lib/executiveRepKpis";
 import { HIERARCHY, isAdmin, isChannelExec, isChannelManager, isExecManager, isRep } from "../../../lib/roleHelpers";
 import { crmBucketCaseSql } from "../../../lib/crmBucketCaseSql";
 
@@ -323,6 +324,21 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
   const meddpiccByRepId = new Map<string, any>();
   for (const r of meddpiccRows || []) meddpiccByRepId.set(String((r as any).rep_id), r);
 
+  const createdRows = selectedPeriod
+    ? await getCreatedByRep({
+        orgId: ctx.user.org_id,
+        periodIds: [String(selectedPeriod.id)],
+        repIds: allowedRepIds,
+      }).catch(() => [])
+    : [];
+  const createdByRepId = new Map<string, { created_amount: number; created_count: number }>();
+  for (const r of createdRows || []) {
+    createdByRepId.set(String((r as any).rep_id), {
+      created_amount: Number((r as any).created_amount || 0) || 0,
+      created_count: Number((r as any).created_count || 0) || 0,
+    });
+  }
+
   const kpisByRepId = new Map<string, any>();
   for (const c of repKpisRows || []) kpisByRepId.set(String((c as any).rep_id), c);
 
@@ -342,6 +358,7 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
     const commit_amount = Number(c?.commit_amount || 0) || 0;
     const best_amount = Number(c?.best_amount || 0) || 0;
     const pipeline_amount = Number(c?.pipeline_amount || 0) || 0;
+    const created = createdByRepId.get(rep_id) || { created_amount: 0, created_count: 0 };
     const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
 
     return {
@@ -375,8 +392,8 @@ export default async function AnalyticsCustomReportsPage({ searchParams }: { sea
       commit_amount,
       best_amount,
       pipeline_amount,
-      created_amount: 0,
-      created_count: 0,
+      created_amount: created.created_amount,
+      created_count: created.created_count,
       win_rate: safeDiv(won_count, won_count + lost_count),
       opp_to_win: safeDiv(won_count, total_count),
       aov: safeDiv(won_amount, won_count),

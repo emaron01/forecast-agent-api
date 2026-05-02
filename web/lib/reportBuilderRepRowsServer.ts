@@ -2,10 +2,12 @@ import "server-only";
 
 import type { AuthUser } from "./auth";
 import { getHealthAggregatedByChannelDealScope, getHealthAveragesByRepByPeriods } from "./analyticsHealth";
+import { channelDealScopeIsEmpty, channelDealScopeWhereStrict } from "./channelDealScope";
 import { fetchChannelOrgDirectoryForViewer } from "./channelOrgDirectory";
 import { getChannelTerritoryRepIds } from "./channelTerritoryScope";
 import {
   getAggregatedRepKpisByChannelDealScope,
+  getCreatedByRep,
   getQuotaByRepPeriod,
   getRepKpisByPeriod,
 } from "./executiveRepKpis";
@@ -21,6 +23,46 @@ type BuilderDirRow = {
   hierarchy_level: number | null;
   active?: boolean;
 };
+
+async function getCreatedByChannelDealScopeForReportBuilder(args: {
+  orgId: number;
+  periodIds: string[];
+  territoryRepIds: number[];
+  partnerNames: string[];
+}): Promise<{ created_amount: number; created_count: number } | null> {
+  const tr = args.territoryRepIds.filter((id) => Number.isFinite(id) && id > 0);
+  const pn = args.partnerNames.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+  if (!args.periodIds.length || channelDealScopeIsEmpty(tr, pn)) return null;
+
+  const scopeSql = channelDealScopeWhereStrict(3, 4);
+  const { rows } = await pool.query<{ created_amount: number; created_count: number }>(
+    `
+    WITH periods AS (
+      SELECT
+        id::bigint AS quota_period_id,
+        period_start::date AS period_start,
+        period_end::date AS period_end
+      FROM quota_periods
+      WHERE org_id = $1::bigint
+        AND id = ANY($2::bigint[])
+    )
+    SELECT
+      COALESCE(SUM(COALESCE(o.amount, 0)), 0)::float8 AS created_amount,
+      COUNT(*)::int AS created_count
+    FROM periods p
+    JOIN opportunities o
+      ON o.org_id = $1
+     AND o.rep_id IS NOT NULL
+     AND o.create_date IS NOT NULL
+     AND o.create_date::date >= p.period_start
+     AND o.create_date::date <= p.period_end
+     ${scopeSql}
+    `,
+    [args.orgId, args.periodIds, tr, pn]
+  );
+
+  return rows?.[0] || null;
+}
 
 function buildDirectoryInScope(
   repDirectory: {
@@ -253,7 +295,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
         const tr = chScope.repIds.filter((id) => Number.isFinite(id) && id > 0);
         const pn = chScope.partnerNames.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
 
-        const [kpis, health, meddpicc, quotaByRepPeriod] = await Promise.all([
+        const [kpis, health, meddpicc, quotaByRepPeriod, created] = await Promise.all([
           getAggregatedRepKpisByChannelDealScope({
             orgId,
             periodIds,
@@ -280,6 +322,12 @@ export async function loadReportBuilderRepRowsForUser(args: {
             orgId,
             quotaPeriodIds: periodIds,
             repIds: tr.length > 0 ? tr : null,
+          }),
+          getCreatedByChannelDealScopeForReportBuilder({
+            orgId,
+            periodIds,
+            territoryRepIds: tr,
+            partnerNames: pn,
           }),
         ]);
 
@@ -335,8 +383,8 @@ export async function loadReportBuilderRepRowsForUser(args: {
           commit_amount,
           best_amount,
           pipeline_amount,
-          created_amount: 0,
-          created_count: 0,
+          created_amount: created?.created_amount == null ? 0 : Number(created.created_amount),
+          created_count: created?.created_count == null ? 0 : Number(created.created_count),
           win_rate: safeDivRb(won_count, won_count + lost_count),
           opp_to_win: safeDivRb(won_count, total_count),
           aov: safeDivRb(won_amount, won_count),
@@ -399,7 +447,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
   }
 
   const repIdsFilter = visibleRepIds;
-  const [repKpisRows, quotaByRepPeriod, repHealthRows, meddpiccRows] = await Promise.all([
+  const [repKpisRows, quotaByRepPeriod, repHealthRows, meddpiccRows, createdByRepRows] = await Promise.all([
     getRepKpisByPeriod({
       orgId,
       periodIds,
@@ -423,6 +471,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
       dateEnd: null,
       requirePartnerName: channelPartnerAttributedOnly,
     }),
+    getCreatedByRep({ orgId, periodIds, repIds: repIdsFilter }),
   ]);
 
   const quotaByRep = new Map<string, number>();
@@ -437,6 +486,16 @@ export async function loadReportBuilderRepRowsForUser(args: {
 
   const meddpiccByRepId = new Map<string, any>();
   for (const r of meddpiccRows || []) meddpiccByRepId.set(String((r as any).rep_id), r);
+
+  const createdByRepId = new Map<string, { created_amount: number; created_count: number }>();
+  for (const r of createdByRepRows || []) {
+    if (String((r as any).quota_period_id) === String(selectedPeriodId)) {
+      createdByRepId.set(String((r as any).rep_id), {
+        created_amount: Number((r as any).created_amount || 0) || 0,
+        created_count: Number((r as any).created_count || 0) || 0,
+      });
+    }
+  }
 
   const kpisByRepId = new Map<string, any>();
   for (const c of repKpisRows || []) {
@@ -476,6 +535,7 @@ export async function loadReportBuilderRepRowsForUser(args: {
     const commit_amount = c != null && c.commit_amount != null ? Number(c.commit_amount) : 0;
     const best_amount = c != null && c.best_amount != null ? Number(c.best_amount) : 0;
     const pipeline_amount = c != null && c.pipeline_amount != null ? Number(c.pipeline_amount) : 0;
+    const created = createdByRepId.get(rep_id) || { created_amount: 0, created_count: 0 };
     const mixDen = pipeline_amount + best_amount + commit_amount + won_amount;
 
     return {
@@ -509,8 +569,8 @@ export async function loadReportBuilderRepRowsForUser(args: {
       commit_amount,
       best_amount,
       pipeline_amount,
-      created_amount: 0,
-      created_count: 0,
+      created_amount: created.created_amount,
+      created_count: created.created_count,
       win_rate: safeDivRb(won_count, won_count + lost_count),
       opp_to_win: safeDivRb(won_count, total_count),
       aov: safeDivRb(won_amount, won_count),

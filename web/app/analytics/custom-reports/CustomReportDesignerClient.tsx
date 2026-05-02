@@ -317,7 +317,7 @@ function fmtNum(n: any) {
   if (n === null || n === undefined) return "-";
   const v = Number(n);
   if (!Number.isFinite(v)) return "-";
-  return v.toLocaleString();
+  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 function isPctMetricKey(key: MetricKey): boolean {
@@ -355,8 +355,9 @@ function resolveMetricKeyForChartTooltip(
 function fmtTooltipValue(value: any, metricKey: string | undefined) {
   const v = value == null ? null : Number(value);
   if (!Number.isFinite(Number(v))) return value;
+  if (metricKey && String(metricKey).startsWith("avg_health_")) return fmtPct(healthFracFrom30(v));
   if (metricKey && isPctMetricKey(metricKey as MetricKey)) return fmtPct(v);
-  return v;
+  return fmtNum(v);
 }
 
 function lmhFromAvg(avg: any) {
@@ -1110,11 +1111,17 @@ export function CustomReportDesignerClient(props: {
     if (periodRows.length !== 2) return null;
     const v0 = Number(periodRows[0].row?.[metricKey as keyof RepRow] ?? 0);
     const v1 = Number(periodRows[1].row?.[metricKey as keyof RepRow] ?? 0);
-    const diff = v1 - v0;
+    const normalizedV0 = metricKey.startsWith("avg_health_") ? Number(healthFracFrom30(v0) ?? 0) : v0;
+    const normalizedV1 = metricKey.startsWith("avg_health_") ? Number(healthFracFrom30(v1) ?? 0) : v1;
+    const diff = normalizedV1 - normalizedV0;
     const isMonetary = metricLabel.includes("$");
     const color = diff >= 0 ? "text-green-400" : "text-red-400";
     const prefix = diff >= 0 ? "+" : "";
-    const formatted = isMonetary ? fmtMoney(Math.abs(diff)) : `${Math.abs(Math.round(diff * 100) / 100)}`;
+    const formatted = isMonetary
+      ? fmtMoney(Math.abs(diff))
+      : isPctMetricKey(metricKey)
+        ? fmtPct(Math.abs(diff))
+        : fmtNum(Math.abs(diff));
     return (
       <span className={color}>
         {prefix}
