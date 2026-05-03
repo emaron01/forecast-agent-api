@@ -85,7 +85,7 @@ export async function POST(
     });
 
     const modelMetadata = {
-      model: process.env.MODEL_API_NAME || "unknown",
+      model: process.env.INGEST_MODEL ?? process.env.MATTHEW_MODEL ?? process.env.MODEL_API_NAME ?? "unknown",
       promptVersionHash: getPromptVersionHash(),
       timestamp: new Date().toISOString(),
     };

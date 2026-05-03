@@ -379,7 +379,7 @@ async function fetchOpportunity(orgId: number, opportunityId: number) {
 async function callModelJSON(args: { instructions: string; input: string }) {
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
-  const model = process.env.MODEL_API_NAME;
+  const model = process.env.MATTHEW_MODEL ?? process.env.MODEL_API_NAME;
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL/MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
   if (!model) throw new Error("Missing MODEL_API_NAME");
@@ -500,7 +500,7 @@ async function callModelJSONWithSentenceStream(
 ): Promise<{ text: string; emittedSentences: string[]; earlyAudioUsed: boolean }> {
   const baseUrl = resolveBaseUrl();
   const apiKey = String(process.env.MODEL_API_KEY || process.env.OPENAI_API_KEY || "").trim();
-  const model = process.env.MODEL_API_NAME;
+  const model = process.env.MATTHEW_MODEL ?? process.env.MODEL_API_NAME;
   if (!baseUrl) throw new Error("Missing OPENAI_BASE_URL (or MODEL_API_URL/MODEL_URL)");
   if (!apiKey) throw new Error("Missing MODEL_API_KEY");
   if (!model) throw new Error("Missing MODEL_API_NAME");
