@@ -25,6 +25,7 @@ import {
 } from "../../../../../../lib/categoryUpdateDeltas";
 import { loadScoringDiscipline, loadConversationalRules, promptHash } from "../../../../../../lib/masterDcoPrompt";
 import { writeMatthewScoresToHubSpotDeal } from "../../../../../../lib/hubspotClient";
+import { writeMatthewScoresToSalesforceOpportunity } from "../../../../../../lib/salesforceClient";
 
 export const runtime = "nodejs";
 
@@ -1270,6 +1271,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
               ...sseEntity,
             });
             void writeMatthewScoresToHubSpotDeal({ orgId, opportunityPublicId }).catch(() => {});
+            void writeMatthewScoresToSalesforceOpportunity({ orgId, opportunityPublicId }).catch(() => {});
 
             const oppAfter = await fetchOpportunity(orgId, opportunityId);
             const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
@@ -1489,6 +1491,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       ...jsonEntity,
     });
     void writeMatthewScoresToHubSpotDeal({ orgId, opportunityPublicId }).catch(() => {});
+    void writeMatthewScoresToSalesforceOpportunity({ orgId, opportunityPublicId }).catch(() => {});
 
     const oppAfter = await fetchOpportunity(orgId, opportunityId);
     const healthPercent = computeHealthPercentFromOpportunity(oppAfter?.health_score);
