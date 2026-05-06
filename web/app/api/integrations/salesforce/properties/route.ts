@@ -56,18 +56,38 @@ export async function GET() {
       ? null
       : {
           message:
-            "Ask your Salesforce administrator to create the following custom fields on the Opportunity object before enabling writeback.",
+            "Ask your Salesforce administrator to create the following custom fields on the Opportunity object before enabling writeback. When creating each field, Salesforce automatically appends '__c' to the API name — do not type '__c' yourself. Set each field to Read-Only to prevent manual edits.",
           fields: result.data.missingFields.map((name) => {
-            const fieldGuide: Record<string, { type: string; length: string }> = {
-              SF_Health_Score_Initial__c: { type: "Number", length: "3, 0" },
-              SF_Health_Score_Current__c: { type: "Number", length: "3, 0" },
-              SF_Risk_Summary__c: { type: "Long Text Area", length: "32768" },
-              SF_Next_Steps__c: { type: "Long Text Area", length: "32768" },
+            // Strip __c for display — SFDC adds it automatically during field creation
+            const displayName = name.replace(/__c$/, "");
+            const fieldGuide: Record<string, { type: string; length: string; instructions: string }> = {
+              SF_Health_Score_Initial__c: {
+                type: "Number",
+                length: "3, 0",
+                instructions: "Field Label: SF Health Score Initial — API Name: SF_Health_Score_Initial (Salesforce adds __c automatically) — Set to Read-Only on page layout",
+              },
+              SF_Health_Score_Current__c: {
+                type: "Number",
+                length: "3, 0",
+                instructions: "Field Label: SF Health Score Current — API Name: SF_Health_Score_Current (Salesforce adds __c automatically) — Set to Read-Only on page layout",
+              },
+              SF_Risk_Summary__c: {
+                type: "Long Text Area",
+                length: "32768",
+                instructions: "Field Label: SF Risk Summary — API Name: SF_Risk_Summary (Salesforce adds __c automatically) — Set to Read-Only on page layout",
+              },
+              SF_Next_Steps__c: {
+                type: "Long Text Area",
+                length: "32768",
+                instructions: "Field Label: SF Next Steps — API Name: SF_Next_Steps (Salesforce adds __c automatically) — Set to Read-Only on page layout",
+              },
             };
             return {
               api_name: name,
+              display_name: displayName,
               type: fieldGuide[name]?.type ?? "Text",
               length: fieldGuide[name]?.length ?? "255",
+              instructions: fieldGuide[name]?.instructions ?? `Create custom field with API Name: ${displayName} — Salesforce adds __c automatically — Set to Read-Only`,
             };
           }),
         },

@@ -694,15 +694,23 @@ export function SalesforceIntegrationClient(props: {
                 <tbody>
                   {WRITEBACK_FIELDS.map((field) => {
                     const missing = missingFields.includes(field.defaultApiName);
+                    const displayName = field.defaultApiName.replace(/__c$/, "");
                     return (
                       <tr key={field.sf_field} className="border-t border-[color:var(--sf-border)]">
-                        <td className="px-3 py-2 font-mono text-[color:var(--sf-text-primary)]">
-                          {field.defaultApiName}
+                        <td className="px-3 py-3 align-top text-[color:var(--sf-text-primary)]">
+                          <div className="font-medium">{field.label}</div>
+                          <div className="mt-1 font-mono text-xs text-[color:var(--sf-text-secondary)]">
+                            API Name: <span className="text-[color:var(--sf-text-primary)]">{displayName}</span>
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            Salesforce adds <span className="font-mono">__c</span> automatically — do not type it
+                          </div>
                         </td>
-                        <td className="px-3 py-2 text-[color:var(--sf-text-secondary)]">
-                          {field.fieldType}
+                        <td className="px-3 py-3 align-top text-[color:var(--sf-text-secondary)]">
+                          <div>{field.fieldType}</div>
+                          <div className="mt-1 text-[11px] text-amber-800">Set to Read-Only on page layout</div>
                         </td>
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-3 align-top">
                           {missing ? (
                             <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-xs font-medium text-amber-900">
                               Missing
