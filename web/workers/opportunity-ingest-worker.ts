@@ -14,6 +14,7 @@ import { insertCommentIngestion } from "../lib/db";
 import { applyCommentIngestionToOpportunity } from "../lib/applyCommentIngestionToOpportunity";
 import { outcomeFromOpportunityRow } from "../lib/opportunityOutcome";
 import { markHubSpotDealDeleted, runHubSpotIngest, syncHubSpotDealMetadataOnly } from "../lib/hubspotIngest";
+import { enqueueScheduledSalesforceSyncs, runSalesforceIngest, syncSalesforceOpportunityMetadataOnly } from "../lib/salesforceIngest";
 import { getIngestQueue } from "../lib/ingest-queue";
 
 const QUEUE_NAME = "opportunity-ingest";
@@ -222,6 +223,19 @@ async function registerRepeatableJobs(): Promise<void> {
     );
 
     await queue.add(
+      "salesforce-scheduled-sync-all",
+      {},
+      {
+        repeat: {
+          pattern: process.env.SALESFORCE_SYNC_CRON || "0 */6 * * *",
+        },
+        jobId: "salesforce-scheduled-sync-all",
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+
+    await queue.add(
       "embed-session-cleanup",
       {},
       {
@@ -341,6 +355,31 @@ async function processJob(job: { data: any; id?: string; name?: string; updatePr
 
   if (job.name === "hubspot-scheduled-sync-all") {
     return enqueueScheduledHubSpotSyncs();
+  }
+
+  if (job.name === "salesforce-initial-sync") {
+    const { orgId, syncLogId, syncType } = job.data || {};
+    if (!orgId || !syncLogId) throw new Error("Invalid salesforce-initial-sync job");
+    await runSalesforceIngest({
+      orgId: Number(orgId),
+      syncLogId: String(syncLogId),
+      syncType: syncType === "manual" || syncType === "scheduled" ? syncType : "initial",
+    });
+    return { ok: true };
+  }
+
+  if (job.name === "salesforce-opportunity-update") {
+    const { orgId, opportunityId } = job.data || {};
+    if (!orgId || !opportunityId) throw new Error("Invalid salesforce-opportunity-update job");
+    await syncSalesforceOpportunityMetadataOnly({
+      orgId: Number(orgId),
+      opportunityId: String(opportunityId),
+    });
+    return { ok: true };
+  }
+
+  if (job.name === "salesforce-scheduled-sync-all") {
+    return enqueueScheduledSalesforceSyncs();
   }
 
   if (job.name === "embed-session-cleanup") {

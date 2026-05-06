@@ -49,7 +49,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 </>
               ) : null}
               <NavLink href="/admin/users" label="Users" />
-              <NavLink href="/admin/integrations/hubspot" label="Integrations" />
+              <NavLink href="/admin/integrations/hubspot" label="HubSpot" />
+              <NavLink href="/admin/integrations/salesforce" label="Salesforce" />
               <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
               <NavLink href="/admin/ingest-comments" label="Ingest Comments" />
               {ctx.kind === "user" && isSalesLeader(ctx.user) ? (
