@@ -43,10 +43,23 @@ export async function GET(req: Request) {
   // which sends the callback to the same redirect URI. We detect by checking the
   // instance_url returned in the token response (sandbox instance URLs contain
   // ".sandbox." or start with "https://cs" / "https://test").
+  // Retrieve PKCE code verifier stored during connect
+  const { rows: pkceRows } = await pool.query<{ code_verifier: string }>(
+    `
+    DELETE FROM salesforce_pkce_verifiers
+     WHERE state = $1
+       AND expires_at > now()
+     RETURNING code_verifier
+    `,
+    [state]
+  );
+  const codeVerifier = pkceRows?.[0]?.code_verifier || null;
+
   const tok = await salesforceExchangeCodeForTokens({
     code,
     redirectUri,
-    sandbox: false, // initial attempt as production
+    sandbox: false,
+    codeVerifier: codeVerifier ?? undefined,
   });
 
   if (tok.ok === false) {

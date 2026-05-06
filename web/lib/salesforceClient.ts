@@ -165,6 +165,7 @@ export async function salesforceExchangeCodeForTokens(args: {
   code: string;
   redirectUri: string;
   sandbox: boolean;
+  codeVerifier?: string;
 }): Promise<
   SalesforceResult<{
     access_token: string;
@@ -191,6 +192,9 @@ export async function salesforceExchangeCodeForTokens(args: {
     redirect_uri: args.redirectUri,
     code: args.code,
   });
+  if (args.codeVerifier) {
+    body.set("code_verifier", args.codeVerifier);
+  }
 
   const res = await sfHttpPostForm(tokenUrl, body);
   if (res.ok === false) return { ok: false, error: res.error };
