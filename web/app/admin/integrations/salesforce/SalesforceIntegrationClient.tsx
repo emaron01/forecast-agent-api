@@ -50,6 +50,15 @@ const SF_DEFAULTS: Record<string, string> = {
   forecast_stage: "ForecastCategoryName",
 };
 
+// Placeholder hints for optional fields with no standard SFDC equivalent
+const SF_PLACEHOLDERS: Record<string, string> = {
+  product:       "Custom field e.g. Product__c",
+  partner_name:  "Custom field e.g. Partner_Name__c",
+  deal_reg:      "Custom field e.g. Deal_Registration__c",
+  deal_reg_date: "Custom field e.g. Deal_Reg_Date__c",
+  deal_reg_id:   "Custom field e.g. Deal_Reg_ID__c",
+};
+
 const WRITEBACK_FIELDS: Array<{
   sf_field: WritebackFieldKey;
   label: string;
@@ -572,7 +581,7 @@ export function SalesforceIntegrationClient(props: {
                           type="text"
                           disabled={busy || tableLocked}
                           className="w-full max-w-xs rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-2 py-1 text-sm font-mono disabled:opacity-50"
-                          placeholder={SF_DEFAULTS[sf] || "API field name"}
+                          placeholder={SF_DEFAULTS[sf] || SF_PLACEHOLDERS[sf] || "Custom field API name"}
                           value={r.sfdc_api_name || ""}
                           onChange={(e) => {
                             const v = e.target.value.trim() || null;
