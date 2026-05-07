@@ -6,7 +6,7 @@ public with sharing class SalesForecastController {
     }
     
     @AuraEnabled
-    public static String fetchDealState(String opportunityId, String userEmail) {
+    public static String fetchDealState(String opportunityId, String sfUserId) {
         String sfOrgId = UserInfo.getOrganizationId();
         String endpoint = 'https://forecast-agent-api.onrender.com/api/crm/salesforce/extension/token';
         
@@ -19,7 +19,7 @@ public with sharing class SalesForecastController {
         Map<String, String> body = new Map<String, String>{
             'sfOrgId'       => sfOrgId,
             'opportunityId' => opportunityId,
-            'userEmail'     => userEmail
+            'sfUserId'      => sfUserId
         };
         req.setBody(JSON.serialize(body));
         

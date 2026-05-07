@@ -1,7 +1,6 @@
 import { LightningElement, api, track, wire } from 'lwc';
 import { NavigationMixin } from 'lightning/navigation';
 import Id from '@salesforce/user/Id';
-import USER_EMAIL from '@salesforce/schema/User.Email';
 import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
 import getOrgId from '@salesforce/apex/SalesForecastController.getOrgId';
 import fetchDealState from '@salesforce/apex/SalesForecastController.fetchDealState';
@@ -58,19 +57,17 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
     @track _data    = null;
     @track _tokens  = null;
     @track _error   = null;
-    @track _userEmail = null;
+    @track _sfUserId = null;
     @track _sfOrgId   = null;
 
     // Wire user email
-    @wire(getRecord, { recordId: Id, fields: [USER_EMAIL] })
+    connectedCallbackUserResolved = false;
+
+    @wire(getRecord, { recordId: Id, fields: [] })
     wiredUser({ data, error }) {
-        if (data) {
-            this._userEmail = getFieldValue(data, USER_EMAIL);
+        if (data || error) {
+            this._sfUserId = Id;
             this._tryFetch();
-        }
-        if (error) {
-            this._error = 'Could not load user information.';
-            this._state = 'error';
         }
     }
 
@@ -96,7 +93,7 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
 
     _tryFetch() {
         if (this._fetchAttempted) return;
-        if (!this._userEmail || !this.recordId) return;
+        if (!this._sfUserId || !this.recordId) return;
         this._fetchAttempted = true;
         this._fetchData();
     }
@@ -107,7 +104,7 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
         try {
             const responseStr = await fetchDealState({
                 opportunityId: this.recordId,
-                userEmail:     this._userEmail,
+                sfUserId:      this._sfUserId,
             });
             const json = JSON.parse(responseStr);
             if (!json.ok) throw new Error(json.error || 'Token fetch failed');
