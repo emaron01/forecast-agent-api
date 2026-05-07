@@ -148,6 +148,8 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
 
     handleRefresh() {
         this._fetchAttempted = false;
+        this._error = null;
+        this._state = 'loading';
         this._fetchData();
     }
 
