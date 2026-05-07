@@ -2,8 +2,8 @@ import { LightningElement, api, track, wire } from 'lwc';
 import { NavigationMixin } from 'lightning/navigation';
 import Id from '@salesforce/user/Id';
 import USER_EMAIL from '@salesforce/schema/User.Email';
-import ORG_ID from '@salesforce/schema/Organization.Id';
 import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
+import getOrgId from '@salesforce/apex/SalesForecastController.getOrgId';
 
 const API_BASE = 'https://forecast-agent-api.onrender.com';
 
@@ -73,44 +73,22 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
         }
     }
 
-    // Wire org ID
-    @wire(getRecord, { recordId: '$_orgRecordId', fields: [ORG_ID] })
-    wiredOrg({ data, error }) {
-        if (data) {
-            this._sfOrgId = getFieldValue(data, ORG_ID);
-            this._tryFetch();
-        }
-        if (error) {
-            // Org ID fetch failure is non-fatal — fall back to connectedCallback
-        }
-    }
-
-    get _orgRecordId() {
-        // Salesforce org record ID is always '00D...' — use Organization sobject
-        return null; // Resolved via connectedCallback instead
-    }
-
     connectedCallback() {
-        // Resolve Salesforce Org ID from the org's base URL
-        // The 18-char org ID is available in the page context
-        const orgId = this._resolveOrgId();
-        if (orgId) {
-            this._sfOrgId = orgId;
-            this._tryFetch();
-        }
+        getOrgId()
+            .then(orgId => {
+                this._sfOrgId = orgId;
+                this._tryFetch();
+            })
+            .catch(() => {
+                // Fall back to hostname if Apex fails
+                this._sfOrgId = window.location.hostname;
+                this._tryFetch();
+            });
     }
 
     _resolveOrgId() {
-        // Extract org ID from the current page URL
-        // Salesforce URLs contain the org ID in the subdomain or as a known env value
-        try {
-            const host = window.location.hostname; // e.g. orgfarm-xxx.develop.my.salesforce.com
-            // For scratch/dev orgs the org ID must come from the token endpoint lookup
-            // We pass the full hostname and let the server resolve it
-            return host;
-        } catch {
-            return null;
-        }
+        // Org ID resolved via Apex controller — see connectedCallback
+        return null;
     }
 
     _fetchAttempted = false;
