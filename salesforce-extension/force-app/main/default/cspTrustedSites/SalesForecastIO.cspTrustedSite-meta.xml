@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <CspTrustedSite xmlns="http://soap.sforce.com/2006/04/metadata">
-    <allowedDomains>forecast-agent-api.onrender.com</allowedDomains>
     <context>All</context>
     <description>SalesForecast.io API access for LWC card</description>
     <endpointUrl>https://forecast-agent-api.onrender.com</endpointUrl>
