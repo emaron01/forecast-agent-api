@@ -1,8 +1,4 @@
-import { LightningElement, api, track, wire } from 'lwc';
-import { NavigationMixin } from 'lightning/navigation';
-import Id from '@salesforce/user/Id';
-import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
-import getOrgId from '@salesforce/apex/SalesForecastController.getOrgId';
+import { LightningElement, api, track } from 'lwc';
 import fetchDealState from '@salesforce/apex/SalesForecastController.fetchDealState';
 
 const API_BASE = 'https://forecast-agent-api.onrender.com';
@@ -19,12 +15,6 @@ const CATEGORY_KEYS = [
     { key: 'timing',      label: 'Timing' },
     { key: 'budget',      label: 'Budget' },
 ];
-
-function scoreVariant(score) {
-    if (score >= 3) return 'success';
-    if (score >= 2) return 'warning';
-    return 'error';
-}
 
 function healthVariant(pct) {
     if (pct == null) return '';
@@ -50,61 +40,23 @@ function scoreBadgeClass(score) {
     return 'slds-m-left_x-small slds-theme_error';
 }
 
-export default class SalesForecastCard extends NavigationMixin(LightningElement) {
+export default class SalesForecastCard extends LightningElement {
     @api recordId;
 
-    @track _state   = 'loading'; // loading | ready | error
-    @track _data    = null;
-    @track _tokens  = null;
-    @track _error   = null;
-    @track _sfUserId = null;
-    @track _sfOrgId   = null;
-
-    // Wire user email
-    connectedCallbackUserResolved = false;
-
-    @wire(getRecord, { recordId: Id, fields: [] })
-    wiredUser({ data, error }) {
-        if (data || error) {
-            this._sfUserId = Id;
-            this._tryFetch();
-        }
-    }
+    @track _state  = 'loading';
+    @track _data   = null;
+    @track _tokens = null;
+    @track _error  = null;
 
     connectedCallback() {
-        getOrgId()
-            .then(orgId => {
-                this._sfOrgId = orgId;
-                this._tryFetch();
-            })
-            .catch(() => {
-                // Fall back to hostname if Apex fails
-                this._sfOrgId = window.location.hostname;
-                this._tryFetch();
-            });
-    }
-
-    _resolveOrgId() {
-        // Org ID resolved via Apex controller — see connectedCallback
-        return null;
-    }
-
-    _fetchAttempted = false;
-
-    _tryFetch() {
-        if (this._fetchAttempted) return;
-        if (!this._sfUserId || !this.recordId) return;
-        this._fetchAttempted = true;
         this._fetchData();
     }
 
     async _fetchData() {
         this._state = 'loading';
-        this._fetchAttempted = true;
         try {
             const responseStr = await fetchDealState({
                 opportunityId: this.recordId,
-                sfUserId:      this._sfUserId,
             });
             const json = JSON.parse(responseStr);
             if (!json.ok) throw new Error(json.error || 'Token fetch failed');
@@ -118,7 +70,6 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
     }
 
     handleRefresh() {
-        this._fetchAttempted = false;
         this._error = null;
         this._state = 'loading';
         this._fetchData();
