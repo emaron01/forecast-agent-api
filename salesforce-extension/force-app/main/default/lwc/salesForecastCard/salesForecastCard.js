@@ -4,6 +4,7 @@ import Id from '@salesforce/user/Id';
 import USER_EMAIL from '@salesforce/schema/User.Email';
 import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
 import getOrgId from '@salesforce/apex/SalesForecastController.getOrgId';
+import fetchDealState from '@salesforce/apex/SalesForecastController.fetchDealState';
 
 const API_BASE = 'https://forecast-agent-api.onrender.com';
 
@@ -104,22 +105,17 @@ export default class SalesForecastCard extends NavigationMixin(LightningElement)
         this._state = 'loading';
         this._fetchAttempted = true;
         try {
-            const res = await fetch(`${API_BASE}/api/crm/salesforce/extension/token`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sfOrgId:       this._sfOrgId || window.location.hostname,
-                    opportunityId: this.recordId,
-                    userEmail:     this._userEmail,
-                }),
+            const responseStr = await fetchDealState({
+                opportunityId: this.recordId,
+                userEmail:     this._userEmail,
             });
-            const json = await res.json();
+            const json = JSON.parse(responseStr);
             if (!json.ok) throw new Error(json.error || 'Token fetch failed');
             this._data   = json.dealState;
             this._tokens = { review: json.reviewToken, dashboard: json.dashboardToken };
             this._state  = 'ready';
         } catch (e) {
-            this._error = String(e?.message || 'Failed to load deal data');
+            this._error = String(e?.message || e?.body?.message || 'Failed to load deal data');
             this._state = 'error';
         }
     }
