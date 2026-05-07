@@ -81,10 +81,9 @@ export async function POST(req: Request) {
 
     const sfOrgId       = String(body.sfOrgId       || url.searchParams.get("sfOrgId")       || "").trim();
     const opportunityId  = String(body.opportunityId  || url.searchParams.get("opportunityId")  || "").trim();
-    const sfUserId       = String(body.sfUserId       || url.searchParams.get("sfUserId")       || "").trim();
 
-    if (!sfOrgId || !opportunityId || !sfUserId) {
-      return jsonError(400, "Missing required fields: sfOrgId, opportunityId, sfUserId");
+    if (!sfOrgId || !opportunityId) {
+      return jsonError(400, "Missing required fields: sfOrgId, opportunityId");
     }
 
     console.log("[sf-extension:token] hit, sfOrgId:", sfOrgId);
