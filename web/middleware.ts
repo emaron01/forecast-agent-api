@@ -7,6 +7,8 @@ const PUBLIC_PREFIXES = [
   "/crm/hubspot/review",
   "/api/crm/hubspot/extension/session",
   "/api/crm/hubspot/extension",
+  "/api/crm/salesforce/extension/session",
+  "/api/crm/salesforce/extension",
   "/embed",
   "/_next",
   "/favicon",
