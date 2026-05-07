@@ -46,8 +46,7 @@ export async function GET(req: Request) {
     [userId, tokenHash]
   );
 
-  // Reuse the HubSpot review page — it's CRM-agnostic once authenticated
-  const reviewUrl = `${appUrl}/crm/hubspot/review?token=${encodeURIComponent(token)}${mode ? `&mode=${mode}` : ""}`;
+  const reviewUrl = `${appUrl}/crm/salesforce/review?token=${encodeURIComponent(token)}${mode ? `&mode=${mode}` : ""}`;
 
   const response = NextResponse.redirect(reviewUrl);
   response.cookies.set("fa_session", sessionToken, {
