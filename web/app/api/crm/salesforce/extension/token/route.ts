@@ -79,12 +79,12 @@ export async function POST(req: Request) {
     let body: any = {};
     try { body = JSON.parse(rawBody); } catch { body = {}; }
 
-    const sfOrgId      = String(body.sfOrgId      || url.searchParams.get("sfOrgId")      || "").trim();
-    const opportunityId = String(body.opportunityId || url.searchParams.get("opportunityId") || "").trim();
-    const userEmail    = String(body.userEmail    || url.searchParams.get("userEmail")    || "").trim().toLowerCase();
+    const sfOrgId       = String(body.sfOrgId       || url.searchParams.get("sfOrgId")       || "").trim();
+    const opportunityId  = String(body.opportunityId  || url.searchParams.get("opportunityId")  || "").trim();
+    const sfUserId       = String(body.sfUserId       || url.searchParams.get("sfUserId")       || "").trim();
 
-    if (!sfOrgId || !opportunityId || !userEmail) {
-      return jsonError(400, "Missing required fields: sfOrgId, opportunityId, userEmail");
+    if (!sfOrgId || !opportunityId || !sfUserId) {
+      return jsonError(400, "Missing required fields: sfOrgId, opportunityId, sfUserId");
     }
 
     console.log("[sf-extension:token] hit, sfOrgId:", sfOrgId);
@@ -100,19 +100,7 @@ export async function POST(req: Request) {
     if (!orgRes.rows[0]) return jsonError(401, "Organization not connected to SalesForecast.io");
     const org_id = Number(orgRes.rows[0].org_id);
 
-    // Resolve rep from email
-    const repRes = await pool.query<{ rep_id: number }>(
-      `SELECT r.id AS rep_id
-         FROM reps r
-         JOIN users u ON u.id = r.user_id
-        WHERE LOWER(u.email) = $1
-          AND r.org_id = $2
-          AND (r.active IS TRUE OR r.active IS NULL)
-        LIMIT 1`,
-      [userEmail, org_id]
-    );
-    if (!repRes.rows[0]) return jsonError(404, "Rep not found — ensure your Salesforce email matches your SalesForecast.io account");
-    const rep_id = Number(repRes.rows[0].rep_id);
+    // rep_id resolved directly from the opportunity record after fetch — no user lookup needed
 
     // Fetch opportunity by Salesforce Opportunity ID (crm_opp_id)
     const oppRes = await pool.query(
@@ -120,6 +108,7 @@ export async function POST(req: Request) {
          o.id,
          o.public_id::text,
          o.crm_opp_id,
+         o.rep_id,
          o.account_name,
          o.opportunity_name,
          o.forecast_stage,
@@ -176,6 +165,7 @@ export async function POST(req: Request) {
     const opportunity_id = Number(opp.id);
     const public_id      = String(opp.public_id);
     const crm_opp_id     = String(opp.crm_opp_id);
+    const rep_id         = Number(opp.rep_id) || 0;
 
     const basePayload: Omit<SalesforceExtensionTokenPayload, "purpose"> = {
       org_id,
