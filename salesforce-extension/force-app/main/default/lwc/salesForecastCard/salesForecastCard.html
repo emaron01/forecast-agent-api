@@ -1,0 +1,172 @@
+<template>
+  <lightning-card>
+    <div slot="title">
+      <lightning-icon icon-name="standard:opportunity" size="small" class="slds-m-right_x-small"></lightning-icon>
+      SalesForecast.io Deal Review
+    </div>
+    <div slot="actions">
+      <lightning-button
+        label="Refresh"
+        onclick={handleRefresh}
+        disabled={isLoading}
+        variant="neutral"
+        size="small">
+      </lightning-button>
+    </div>
+
+    <div class="slds-p-around_medium">
+
+      <!-- Loading state -->
+      <template if:true={isLoading}>
+        <div class="slds-align_absolute-center slds-p-around_large">
+          <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+          <p class="slds-m-top_small slds-text-color_weak">Loading deal data...</p>
+        </div>
+      </template>
+
+      <!-- Error state -->
+      <template if:true={isError}>
+        <div class="slds-notify slds-notify_alert slds-alert_error slds-m-bottom_medium" role="alert">
+          <span class="slds-assistive-text">error</span>
+          <h2>{errorMessage}</h2>
+        </div>
+        <p class="slds-text-body_small slds-text-color_weak">
+          Check that this Salesforce org is connected to SalesForecast.io and try again.
+        </p>
+      </template>
+
+      <!-- Ready state -->
+      <template if:true={isReady}>
+
+        <!-- Health score + verdict pills -->
+        <div class="slds-m-bottom_medium">
+          <template if:true={hasInitialHealth}>
+            <lightning-badge
+              label={initialHealthLabel}
+              class={initialHealthClass}>
+            </lightning-badge>
+          </template>
+          <template if:true={hasCurrentHealth}>
+            <lightning-badge
+              label={currentHealthLabel}
+              class={currentHealthClass}>
+            </lightning-badge>
+          </template>
+          <template if:true={hasVerdict}>
+            <lightning-badge label={verdictLabel} class="slds-m-left_x-small"></lightning-badge>
+          </template>
+        </div>
+
+        <!-- MEDDPICC+TB category pills -->
+        <div class="slds-m-bottom_medium">
+          <template for:each={categoryPills} for:item="pill">
+            <lightning-badge
+              key={pill.key}
+              label={pill.label}
+              class={pill.badgeClass}>
+            </lightning-badge>
+          </template>
+        </div>
+
+        <!-- Manager review request -->
+        <template if:true={hasReviewRequest}>
+          <div class="slds-notify slds-notify_alert slds-alert_warning slds-m-bottom_medium" role="alert">
+            <span class="slds-assistive-text">warning</span>
+            <h2>
+              <template if:true={reviewRequestedByName}>
+                {reviewRequestedByName} has requested a Matthew review.
+              </template>
+              <template if:false={reviewRequestedByName}>
+                A Matthew review has been requested.
+              </template>
+            </h2>
+            <p class="slds-m-top_x-small">
+              <strong>Manager note:</strong> &quot;{reviewRequestNote}&quot;
+            </p>
+          </div>
+        </template>
+
+        <!-- Action links -->
+        <div class="slds-m-bottom_medium slds-grid slds-gutters_small">
+          <div class="slds-col">
+            <lightning-button
+              label="Start Matthew Review"
+              variant="brand"
+              onclick={handleStartReview}>
+            </lightning-button>
+          </div>
+          <div class="slds-col">
+            <lightning-button
+              label="Open Dashboard"
+              variant="neutral"
+              onclick={handleOpenDashboard}>
+            </lightning-button>
+          </div>
+        </div>
+
+        <hr class="slds-m-vertical_medium" />
+
+        <!-- MEDDPICC+TB accordion -->
+        <lightning-accordion allow-multiple-sections-open>
+          <lightning-accordion-section name="meddpicc" label="MEDDPICC+TB Evidence &amp; Coaching">
+            <template for:each={categoryDetails} for:item="cat">
+              <div key={cat.key} class="slds-m-bottom_small">
+                <div class="slds-grid slds-gutters_x-small slds-m-bottom_xx-small">
+                  <div class="slds-col slds-size_1-of-4">
+                    <strong>{cat.label}</strong>
+                  </div>
+                  <div class="slds-col">
+                    <lightning-badge label={cat.scoreLabel} class={cat.badgeClass}></lightning-badge>
+                  </div>
+                </div>
+                <template if:true={cat.evidence}>
+                  <p class="slds-text-body_small">
+                    <strong>Evidence:</strong> {cat.evidence}
+                  </p>
+                </template>
+                <template if:true={cat.tip}>
+                  <p class="slds-text-body_small slds-text-color_weak">
+                    <strong>Tip:</strong> {cat.tip}
+                  </p>
+                </template>
+                <template if:false={cat.hasData}>
+                  <p class="slds-text-body_small slds-text-color_weak">
+                    No data yet — complete a Matthew review to populate this category.
+                  </p>
+                </template>
+              </div>
+            </template>
+          </lightning-accordion-section>
+
+          <lightning-accordion-section name="risk" label="Risk Summary &amp; Next Steps">
+            <template if:true={hasRiskSummary}>
+              <p class="slds-m-bottom_small">
+                <strong>Risk Summary</strong><br />
+                {riskSummary}
+              </p>
+            </template>
+            <template if:true={hasNextSteps}>
+              <p>
+                <strong>Next Steps</strong><br />
+                {nextSteps}
+              </p>
+            </template>
+            <template if:false={hasRiskOrNextSteps}>
+              <p class="slds-text-body_small slds-text-color_weak">
+                No risk summary yet — complete a Matthew review to generate one.
+              </p>
+            </template>
+          </lightning-accordion-section>
+        </lightning-accordion>
+
+        <!-- Footer -->
+        <div class="slds-m-top_medium slds-text-align_center">
+          <p class="slds-text-body_small slds-text-color_weak">
+            Powered by <a href="https://mysalesforecast.io" target="_blank">SalesForecast.io</a>
+          </p>
+        </div>
+
+      </template>
+    </div>
+  </lightning-card>
+</template>
