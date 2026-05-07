@@ -1132,7 +1132,6 @@ export async function updateRep(args: {
     `UPDATE opportunities
         SET rep_id = $1
       WHERE org_id = $2
-        AND rep_id IS NULL
         AND LOWER(rep_name) = LOWER($3)`,
     [rep.id, organizationId, args.crm_owner_name ?? null]
   );
