@@ -102,7 +102,7 @@ export function KpiCardsRow(props: {
   const attributionCardClass = [card, "min-w-0 p-3"].join(" ");
   const ForecastStageGapAttributionCard = (
     <div className={attributionCardClass}>
-      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">Gap Attribution</div>
+      <div className="text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">AI Gap Forecast Adjustment</div>
       <div className="mt-2 grid gap-1.5 text-tableValue text-[color:var(--sf-text-primary)]">
         {[
           { label: "Commit", v: props.bucketDeltas.commit },

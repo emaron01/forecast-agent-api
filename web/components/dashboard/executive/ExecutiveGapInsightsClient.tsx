@@ -3219,13 +3219,13 @@ export function ExecutiveGapInsightsClient(props: {
 
             <div className="w-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">GAP ATTRIBUTION</div>
+                <div className="text-sectionTitle text-[color:var(--sf-text-primary)]">AI Gap Forecast Adjustment</div>
                 <div className={`text-sm font-semibold font-[tabular-nums] ${gapMoneyColorClass(totalGapSum)}`}>{fmtMoney(totalGapSum)}</div>
               </div>
               <div
                 className="mt-2 flex h-[10px] w-full min-w-0 overflow-hidden rounded-full border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)]"
                 role="img"
-                aria-label={`Gap attribution mix: Commit ${fmtMoney(gapCommit)}, Best Case ${fmtMoney(gapBest)}, Pipeline ${fmtMoney(gapPipe)}`}
+                aria-label={`AI Gap Forecast Adjustment mix: Commit ${fmtMoney(gapCommit)}, Best Case ${fmtMoney(gapBest)}, Pipeline ${fmtMoney(gapPipe)}`}
               >
                 <div className="h-full shrink-0 bg-[#2ECC71]" style={{ width: `${segC}%` }} aria-hidden />
                 <div className="h-full shrink-0 bg-[#F1C40F]" style={{ width: `${segB}%` }} aria-hidden />
@@ -3236,12 +3236,12 @@ export function ExecutiveGapInsightsClient(props: {
                   <div className="min-w-0 overflow-hidden text-cardLabel uppercase text-[color:var(--sf-text-secondary)]">
                     <span className="inline-flex min-w-0 items-center gap-2 truncate">
                       <span className="h-2 w-2 shrink-0 rounded-full bg-[#2ECC71]" aria-hidden />
-                      <span className="min-w-0 truncate">COMMIT GAP</span>
+                      <span className="min-w-0 truncate">Commit Adjustment</span>
                     </span>
                   </div>
                   <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapCommit)}`}>{fmtMoney(gapCommit)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
-                    {pctCommitOfTotal == null ? "—" : `${pctCommitOfTotal}% of total gap`}
+                    {pctCommitOfTotal == null ? "—" : `${pctCommitOfTotal}% of AI vs CRM Forecast Delta`}
                   </div>
                 </div>
                 <div className={forecastStyleCard}>
@@ -3253,7 +3253,7 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                   <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapBest)}`}>{fmtMoney(gapBest)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
-                    {pctBestOfTotal == null ? "—" : `${pctBestOfTotal}% of total gap`}
+                    {pctBestOfTotal == null ? "—" : `${pctBestOfTotal}% of AI vs CRM Forecast Delta`}
                   </div>
                 </div>
                 <div className={forecastStyleCard}>
@@ -3265,7 +3265,7 @@ export function ExecutiveGapInsightsClient(props: {
                   </div>
                   <div className={`${forecastStyleValue} ${gapMoneyColorClass(gapPipe)}`}>{fmtMoney(gapPipe)}</div>
                   <div className="mt-2 min-w-0 truncate text-meta text-[color:var(--sf-text-secondary)]">
-                    {pctPipeOfTotal == null ? "—" : `${pctPipeOfTotal}% of total gap`}
+                    {pctPipeOfTotal == null ? "—" : `${pctPipeOfTotal}% of AI vs CRM Forecast Delta`}
                   </div>
                 </div>
               </div>
