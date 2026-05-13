@@ -2542,7 +2542,7 @@ export function DealReviewClient(props: {
           </div>
 
           {!readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
-            <>
+            <div className="dealReviewHiddenMounted">
               <details style={{ marginTop: 12 }} open={mode === "CATEGORY_UPDATE"}>
                 <summary className="small">Conversation &amp; debug</summary>
                 <div className="chat">
@@ -2633,12 +2633,12 @@ export function DealReviewClient(props: {
                   </div>
                 ) : null}
               </div>
-            </>
+            </div>
           ) : null}
         </div>
 
         {!readOnly ? (
-        <div className="card">
+        <div className="card dealReviewHiddenMounted">
           <div className="hdr">
             <div className="title">Audio</div>
             <div className="meta">
@@ -2668,6 +2668,15 @@ export function DealReviewClient(props: {
           --good: #2ecc71;
           --warn: #f1c40f;
           --bad: #e74c3c;
+        }
+        .dealReviewHiddenMounted {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          overflow: hidden !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          clip-path: inset(50%) !important;
         }
         body {
           margin: 0;
