@@ -2438,7 +2438,7 @@ export function DealReviewClient(props: {
           ) : null}
 
           {!readOnly ? (
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginTop: 16, marginBottom: 10, textAlign: "center" }}>
               <button
                 className="btnPrimary"
                 onClick={startFullDealReview}
@@ -2541,7 +2541,8 @@ export function DealReviewClient(props: {
             })}
           </div>
 
-          {!readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
+          {/* Remove false && to show Conversation & debug. */}
+          {false && !readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
             <>
               <details style={{ marginTop: 12 }} open={mode === "CATEGORY_UPDATE"}>
                 <summary className="small">Conversation &amp; debug</summary>
@@ -2637,7 +2638,8 @@ export function DealReviewClient(props: {
           ) : null}
         </div>
 
-        {!readOnly ? (
+        {/* Remove false && to show Audio. */}
+        {false && !readOnly ? (
         <div className="card">
           <div className="hdr">
             <div className="title">Audio</div>
@@ -2772,15 +2774,15 @@ export function DealReviewClient(props: {
           cursor: not-allowed;
         }
         .btnPrimary {
-          width: 100%;
+          width: 75%;
           padding: 14px 14px;
           font-weight: 800;
           border-radius: 12px;
-          border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+          border-color: color-mix(in srgb, var(--accent) 65%, transparent);
           background: linear-gradient(
             180deg,
-            color-mix(in srgb, var(--accent) 18%, transparent),
-            color-mix(in srgb, var(--accent) 6%, transparent)
+            color-mix(in srgb, var(--accent) 45%, var(--panel)),
+            color-mix(in srgb, var(--accent) 28%, var(--panel))
           );
         }
         .status {
