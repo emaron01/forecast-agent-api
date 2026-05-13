@@ -2430,7 +2430,8 @@ export function DealReviewClient(props: {
             </div>
           ) : null}
 
-          {!readOnly ? (
+          {/* Change to {!readOnly ? ( to show Paste Notes. */}
+          {false && !readOnly ? (
             <div style={{ marginTop: 16 }}>
               <PasteNotesPanel opportunityId={opportunityId} onApplied={loadOpportunityState} />
             </div>
