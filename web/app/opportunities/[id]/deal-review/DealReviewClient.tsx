@@ -2541,8 +2541,7 @@ export function DealReviewClient(props: {
             })}
           </div>
 
-          {/* Remove false && to show Conversation & debug. */}
-          {false && !readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
+          {!readOnly && (mode === "FULL_REVIEW" || mode === "CATEGORY_UPDATE") ? (
             <>
               <details style={{ marginTop: 12 }} open={mode === "CATEGORY_UPDATE"}>
                 <summary className="small">Conversation &amp; debug</summary>
@@ -2638,8 +2637,7 @@ export function DealReviewClient(props: {
           ) : null}
         </div>
 
-        {/* Remove false && to show Audio. */}
-        {false && !readOnly ? (
+        {!readOnly ? (
         <div className="card">
           <div className="hdr">
             <div className="title">Audio</div>
