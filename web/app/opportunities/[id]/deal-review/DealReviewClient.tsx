@@ -811,17 +811,6 @@ export function DealReviewClient(props: {
     isPlayingSentenceRef.current = false;
   }, [playTts]);
 
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    const onEnded = () => {
-      speakingRef.current = false;
-      setSpeaking(false);
-    };
-    el.addEventListener("ended", onEnded);
-    return () => el.removeEventListener("ended", onEnded);
-  }, []);
-
   const sendToStt = useCallback(async (blob: Blob) => {
     // STT response already read as res.text() then JSON.parse() here (no res.json()).
     // Previous hardening: body read once, parse failures return stable error; raw SyntaxError never surfaces to UI.
