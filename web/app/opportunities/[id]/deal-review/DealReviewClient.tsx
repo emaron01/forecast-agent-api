@@ -771,17 +771,31 @@ export function DealReviewClient(props: {
         if (lastAudioUrlRef.current) URL.revokeObjectURL(lastAudioUrlRef.current);
         lastAudioUrlRef.current = url;
         const el = audioRef.current;
-        if (!el) return;
+        if (!el) {
+          setTtsError("Audio element not ready");
+          return;
+        }
         el.src = url;
         await new Promise<void>((resolve, reject) => {
-          const onEnded = () => {
-            el.removeEventListener("ended", onEnded);
-            resolve();
+          let settled = false;
+          const settle = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            fn();
           };
-          el.addEventListener("ended", onEnded);
-          el.play().catch((err) => {
+          const cleanup = () => {
+            window.clearTimeout(fallbackTimer);
             el.removeEventListener("ended", onEnded);
-            reject(err);
+            el.removeEventListener("error", onError);
+          };
+          const onEnded = () => settle(resolve);
+          const onError = () => settle(() => reject(new Error("Audio playback failed")));
+          const fallbackTimer = window.setTimeout(() => settle(resolve), 120000);
+          el.addEventListener("ended", onEnded);
+          el.addEventListener("error", onError);
+          void el.play().catch((err) => {
+            settle(() => reject(err));
           });
         });
       } catch (e: any) {
@@ -1496,7 +1510,12 @@ export function DealReviewClient(props: {
     if (!lastAssistant) return false;
     const lastLine = String(lastAssistant.text || "").trim().split("\n").map((l) => l.trim()).filter(Boolean).at(-1) || "";
     if (!lastLine) return false;
-    return lastLine.endsWith("?") || /\b(tell me|walk me through|describe|confirm|what|who|how)\b/i.test(lastLine);
+    const userHasSpoken = msgs.some((m) => m.role === "user");
+    return (
+      !userHasSpoken ||
+      lastLine.endsWith("?") ||
+      /\b(tell me|walk me through|describe|confirm|what|who|how|please|share|provide)\b/i.test(lastLine)
+    );
   }, [catMessages, mode, selectedCategory]);
 
   useEffect(() => {
@@ -2627,18 +2646,18 @@ export function DealReviewClient(props: {
         </div>
 
         {!readOnly ? (
-        <div className="card dealReviewHiddenMounted">
-          <div className="hdr">
-            <div className="title">Audio</div>
-            <div className="meta">
-              <span className="pill">TTS</span>
-              <span className="pill">STT</span>
+        <>
+          <audio ref={audioRef} className="dealReviewSrAudio" />
+          <div className="card dealReviewHiddenMounted">
+            <div className="hdr">
+              <div className="title">Audio</div>
+              <div className="meta">
+                <span className="pill">TTS</span>
+                <span className="pill">STT</span>
+              </div>
             </div>
           </div>
-          <div style={{ marginTop: 10 }}>
-            <audio ref={audioRef} controls style={{ width: "100%" }} />
-          </div>
-        </div>
+        </>
         ) : null}
       </div>
 
@@ -2657,6 +2676,14 @@ export function DealReviewClient(props: {
           --good: #2ecc71;
           --warn: #f1c40f;
           --bad: #e74c3c;
+        }
+        .dealReviewSrAudio {
+          position: fixed;
+          left: -9999px;
+          width: 1px;
+          height: 1px;
+          opacity: 0;
+          pointer-events: none;
         }
         .dealReviewHiddenMounted {
           position: absolute !important;
