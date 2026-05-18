@@ -1618,7 +1618,7 @@ export function DealReviewClient(props: {
       const rawAssistantText = String(json?.assistantText ?? "").trim();
       if (rawAssistantText) {
         setCatMessages([{ role: "assistant", text: rawAssistantText, at: Date.now() }]);
-        void playTts(rawAssistantText);
+        await playTts(rawAssistantText);
       }
     } catch (e: any) {
       setFullReviewChainIndex(null);
