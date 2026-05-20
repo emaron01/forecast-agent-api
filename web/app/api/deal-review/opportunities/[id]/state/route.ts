@@ -122,6 +122,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
         o.deal_reg_date,
         o.deal_reg_id,
         o.rep_id,
+        o.rep_name AS rep_name_raw,
         COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), o.rep_name) AS rep_name,
         o.health_score,
         o.health_score_source,
@@ -188,6 +189,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     }
 
     const repName = (opportunity as any)?.rep_name ?? null;
+    const repNameRaw = (opportunity as any)?.rep_name_raw ?? repName;
 
     if (auth.kind === "user" && isChannelRole(auth.user)) {
       const allowed = await channelUserCanViewOpportunity({
@@ -200,7 +202,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
     } else {
-      const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repName });
+      const vis = ensureOpportunityVisible({ auth, orgId, opportunityRepName: repNameRaw });
       if (!vis.ok) {
         endSpan(reqSpan!, { status: "error", http_status: vis.status });
         return NextResponse.json({ ok: false, error: vis.error }, { status: vis.status });
@@ -212,7 +214,7 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
         endSpan(reqSpan!, { status: "error", http_status: 403 });
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
-      const ok = await ensureManagerCanSeeRep({ orgId, managerUserId: auth.user.id, repName });
+      const ok = await ensureManagerCanSeeRep({ orgId, managerUserId: auth.user.id, repName: repNameRaw });
       if (!ok) {
         endSpan(reqSpan!, { status: "error", http_status: 403 });
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
