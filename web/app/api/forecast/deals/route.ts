@@ -188,7 +188,8 @@ export async function GET(req: Request) {
         o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
         o.updated_at
       FROM opportunities o
-      LEFT JOIN users u ON u.id = o.rep_id
+      LEFT JOIN reps r ON r.id = o.rep_id
+      LEFT JOIN users u ON u.id = r.user_id
     `;
 
     // Build WHERE/params in a stable, index-safe way.

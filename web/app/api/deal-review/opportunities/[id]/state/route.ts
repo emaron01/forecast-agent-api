@@ -168,7 +168,8 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
         o.created_at,
         o.updated_at
         FROM opportunities o
-        LEFT JOIN users u ON u.id = o.rep_id
+        LEFT JOIN reps r ON r.id = o.rep_id
+        LEFT JOIN users u ON u.id = r.user_id
        WHERE o.org_id = $1 AND o.id = $2
        LIMIT 1
       `,
