@@ -20,7 +20,7 @@ export default async function DealReviewPage(
 ) {
   const auth = await requireAuth();
   if (auth.kind === "master") redirect("/admin/organizations");
-  if (isAdmin(auth.user) && !auth.user.admin_has_full_analytics_access) redirect("/admin");
+  if (isAdmin(auth.user)) redirect("/admin");
 
   const org = await getOrganization({ id: auth.user.org_id }).catch(() => null);
   const orgName = org?.name || "Organization";

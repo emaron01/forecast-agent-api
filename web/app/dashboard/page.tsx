@@ -439,7 +439,6 @@ export default async function DashboardPage({
     "overview",
     "sales_opportunities",
     ...(isRepLevel(ctx.user.hierarchy_level) ? (["top_deals"] as ExecTabKey[]) : []),
-    ...(isRepLevel(ctx.user.hierarchy_level) ? (["channel_partners"] as ExecTabKey[]) : []),
   ];
 
   const activeTab = resolveDashboardTab({
