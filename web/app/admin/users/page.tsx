@@ -560,15 +560,15 @@ export default async function UsersPage({
             ) : null}
 
             <div className="grid gap-1">
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">CRM Opportunity Owner ID</label>
               <input
                 name="account_owner_name"
                 defaultValue={prefillAccountOwnerName}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               />
               <p className="text-xs font-medium text-[#E74C3C]">
-                This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
-                PASTE the name as it appears in CRM. (Required for Reps and Channel Reps)
+                The unique owner identifier exactly as it appears on Opportunity records in your CRM. Copy and paste directly from CRM — do
+                not type manually. (Required for Sales Reps/ Opportunity Owners Only)
               </p>
             </div>
 
@@ -908,15 +908,15 @@ export default async function UsersPage({
             ) : null}
 
             <div className="grid gap-1" data-show-roles="REP" hidden={!isRepLevel(roleToHierarchyLevel(user.role))}>
-              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">Name As It Appears In CRM</label>
+              <label className="text-sm font-medium text-[color:var(--sf-text-secondary)]">CRM Opportunity Owner ID</label>
               <input
                 name="account_owner_name"
                 defaultValue={user.account_owner_name || ""}
                 className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm text-[color:var(--sf-text-primary)]"
               />
               <p className="text-xs font-medium text-[#E74C3C]">
-                This name is used to exactly match the Account Owner for each Opportunity in CRM used for Forecast Reviews. Please COPY and
-                PASTE the name as it appears in CRM. (Required for Reps only)
+                The unique owner identifier exactly as it appears on Opportunity records in your CRM. Copy and paste directly from CRM — do
+                not type manually. (Required for Sales Reps/ Opportunity Owners Only)
               </p>
             </div>
 

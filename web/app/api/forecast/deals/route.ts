@@ -151,43 +151,44 @@ export async function GET(req: Request) {
 
     const baseSelect = `
       SELECT
-        public_id::text AS id,
-        rep_id::text AS rep_id,
-        rep_name,
-        account_name,
-        opportunity_name,
-        crm_opp_id,
-        product,
-        amount,
-        create_date_raw,
-        create_date,
-        close_date,
-        forecast_stage AS stage,
-        forecast_stage,
-        sales_stage,
-        ai_verdict,
-        ai_forecast,
-        partner_name,
-        deal_registration,
-        deal_reg_date,
-        deal_reg_id,
-        health_score,
-        risk_summary,
-        next_steps,
-        rep_comments,
-        pain_score, pain_summary, pain_tip,
-        metrics_score, metrics_summary, metrics_tip,
-        champion_score, champion_summary, champion_tip,
-        eb_score, eb_summary, eb_tip,
-        criteria_score, criteria_summary, criteria_tip,
-        process_score, process_summary, process_tip,
-        competition_score, competition_summary, competition_tip,
-        paper_score, paper_summary, paper_tip,
-        timing_score, timing_summary, timing_tip,
-        budget_score, budget_summary, budget_tip,
-        paper_confidence, process_confidence, timing_confidence, budget_confidence,
-        updated_at
+        o.public_id::text AS id,
+        o.rep_id::text AS rep_id,
+        COALESCE(NULLIF(TRIM(u.first_name || ' ' || u.last_name), ''), o.rep_name) AS rep_name,
+        o.account_name,
+        o.opportunity_name,
+        o.crm_opp_id,
+        o.product,
+        o.amount,
+        o.create_date_raw,
+        o.create_date,
+        o.close_date,
+        o.forecast_stage AS stage,
+        o.forecast_stage,
+        o.sales_stage,
+        o.ai_verdict,
+        o.ai_forecast,
+        o.partner_name,
+        o.deal_registration,
+        o.deal_reg_date,
+        o.deal_reg_id,
+        o.health_score,
+        o.risk_summary,
+        o.next_steps,
+        o.rep_comments,
+        o.pain_score, o.pain_summary, o.pain_tip,
+        o.metrics_score, o.metrics_summary, o.metrics_tip,
+        o.champion_score, o.champion_summary, o.champion_tip,
+        o.eb_score, o.eb_summary, o.eb_tip,
+        o.criteria_score, o.criteria_summary, o.criteria_tip,
+        o.process_score, o.process_summary, o.process_tip,
+        o.competition_score, o.competition_summary, o.competition_tip,
+        o.paper_score, o.paper_summary, o.paper_tip,
+        o.timing_score, o.timing_summary, o.timing_tip,
+        o.budget_score, o.budget_summary, o.budget_tip,
+        o.paper_confidence, o.process_confidence, o.timing_confidence, o.budget_confidence,
+        o.updated_at
       FROM opportunities o
+      LEFT JOIN users u ON u.id = o.rep_id
     `;
 
     // Build WHERE/params in a stable, index-safe way.
@@ -294,7 +295,7 @@ export async function GET(req: Request) {
       WITH base AS (SELECT 1) ${qpCte}
       ${baseSelectWithJoin}
       ${whereSql}
-      ORDER BY updated_at DESC NULLS LAST, id DESC
+      ORDER BY o.updated_at DESC NULLS LAST, o.id DESC
       LIMIT $${limitIdx}
       `,
       params
