@@ -6,6 +6,7 @@ import {
   stageIngestionRows,
 } from "./db";
 import {
+  getArchivedDealIds,
   getDealByIdWithCompany,
   getDealEngagements,
   getDealsWithCompanies,
@@ -581,6 +582,27 @@ export async function runHubSpotIngest(params: {
       totalProcessed += deals.length;
       cursor = page.data.nextCursor || undefined;
     } while (cursor);
+
+    // Purge opportunities deleted in HubSpot since last sync
+    const lastSyncedRes = await pool.query<{ last_synced_at: Date | null }>(
+      `SELECT last_synced_at FROM hubspot_connections WHERE org_id = $1`,
+      [orgId]
+    );
+    const lastSyncedAt = lastSyncedRes.rows?.[0]?.last_synced_at;
+    if (lastSyncedAt) {
+      const archivedRes = await getArchivedDealIds(orgId, lastSyncedAt);
+      if (archivedRes.ok === false) {
+        await appendSyncLogWarning(syncLogId, `Archived deal fetch failed: ${archivedRes.error}`);
+      } else if (archivedRes.data.length > 0) {
+        const normalizedIds = archivedRes.data.map((id) => id.toLowerCase());
+        await pool.query(
+          `DELETE FROM opportunities
+         WHERE org_id = $1
+         AND crm_opp_id_norm = ANY($2::text[])`,
+          [orgId, normalizedIds]
+        );
+      }
+    }
 
     await pool.query(`UPDATE hubspot_connections SET last_synced_at = now(), updated_at = now() WHERE org_id = $1`, [orgId]);
     await updateSyncLog(syncLogId, { status: "completed", completed_at: new Date().toISOString() });

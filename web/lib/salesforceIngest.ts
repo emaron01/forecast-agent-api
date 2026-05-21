@@ -6,6 +6,7 @@ import {
   stageIngestionRows,
 } from "./db";
 import {
+  getDeletedOpportunityIds,
   getOpportunitiesWithAccounts,
   getOpportunityById,
   getOwners,
@@ -665,6 +666,27 @@ export async function runSalesforceIngest(params: {
       totalProcessed += opps.length;
       nextUrl = page.data.nextUrl;
     } while (nextUrl);
+
+    // Purge opportunities deleted in SFDC since last sync
+    const lastSyncedRes = await pool.query<{ last_synced_at: Date | null }>(
+      `SELECT last_synced_at FROM salesforce_connections WHERE org_id = $1`,
+      [orgId]
+    );
+    const lastSyncedAt = lastSyncedRes.rows?.[0]?.last_synced_at;
+    if (lastSyncedAt) {
+      const deletedRes = await getDeletedOpportunityIds(orgId, lastSyncedAt);
+      if (deletedRes.ok === false) {
+        await appendSyncLogWarning(syncLogId, `Deleted opportunity fetch failed: ${deletedRes.error}`);
+      } else if (deletedRes.data.length > 0) {
+        const normalizedIds = deletedRes.data.map((id) => id.toLowerCase());
+        await pool.query(
+          `DELETE FROM opportunities 
+         WHERE org_id = $1 
+         AND crm_opp_id_norm = ANY($2::text[])`,
+          [orgId, normalizedIds]
+        );
+      }
+    }
 
     await pool.query(
       `UPDATE salesforce_connections SET last_synced_at = now(), updated_at = now() WHERE org_id = $1`,

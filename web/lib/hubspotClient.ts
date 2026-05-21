@@ -675,6 +675,27 @@ export async function getOwners(orgId: number): Promise<HubSpotResult<HubSpotOwn
   return { ok: true, data: out };
 }
 
+export async function getArchivedDealIds(
+  orgId: number,
+  archivedSince: Date
+): Promise<HubSpotResult<string[]>> {
+  const since = archivedSince.toISOString();
+  const res = await hubspotAuthorizedJson(
+    orgId, "GET",
+    `https://api.hubapi.com/crm/v3/objects/deals?archived=true&limit=100&properties=hs_lastmodifieddate`
+  );
+  if (res.ok === false) return { ok: false, error: res.error };
+  const results = Array.isArray(res.json?.results) ? res.json.results : [];
+  const filtered = results
+    .filter((r: any) => {
+      const modified = r?.properties?.hs_lastmodifieddate;
+      return modified && new Date(modified) >= archivedSince;
+    })
+    .map((r: any) => String(r.id))
+    .filter(Boolean);
+  return { ok: true, data: filtered };
+}
+
 export async function getOwnerEmailOrName(orgId: number, ownerId: string): Promise<HubSpotResult<string>> {
   const id = String(ownerId || "").trim();
   if (!id) return { ok: true, data: "" };

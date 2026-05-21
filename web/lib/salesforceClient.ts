@@ -640,6 +640,21 @@ export async function getOwners(orgId: number): Promise<SalesforceResult<Salesfo
   return { ok: true, data: out };
 }
 
+export async function getDeletedOpportunityIds(
+  orgId: number,
+  deletedSince: Date
+): Promise<SalesforceResult<string[]>> {
+  const since = deletedSince.toISOString();
+  const soql = `SELECT Id FROM Opportunity WHERE IsDeleted = true AND LastModifiedDate >= ${since}`;
+  const res = await sfAuthorizedJson(
+    orgId, "GET",
+    `/queryAll?q=${encodeURIComponent(soql)}`
+  );
+  if (res.ok === false) return { ok: false, error: res.error };
+  const records = Array.isArray(res.json?.records) ? res.json.records : [];
+  return { ok: true, data: records.map((r: any) => String(r.Id)).filter(Boolean) };
+}
+
 /** Update Opportunity fields — equivalent to updateDealProperties in hubspotClient. */
 export async function updateOpportunityFields(
   orgId: number,
