@@ -48,15 +48,20 @@ const SF_DEFAULTS: Record<string, string> = {
   stage:          "StageName",
   owner:          "OwnerId",
   forecast_stage: "ForecastCategoryName",
+  product:        "Product2Name",
+  partner_name:   "Partner_Account_Name__c",
+  deal_reg:       "DR_Deal_Registration__c",
+  deal_reg_date:  "DR_Close_Date__c",
+  deal_reg_id:    "DR_Deal_Registration_Number__c",
 };
 
 // Placeholder hints for optional fields with no standard SFDC equivalent
 const SF_PLACEHOLDERS: Record<string, string> = {
-  product:       "Custom field e.g. Product__c",
-  partner_name:  "Custom field e.g. Partner_Name__c",
-  deal_reg:      "Custom field e.g. Deal_Registration__c",
-  deal_reg_date: "Custom field e.g. Deal_Reg_Date__c",
-  deal_reg_id:   "Custom field e.g. Deal_Reg_ID__c",
+  product:       "Override default e.g. Product__c",
+  partner_name:  "Override default e.g. Partner_Name__c",
+  deal_reg:      "Override default e.g. Deal_Registration__c",
+  deal_reg_date: "Override default e.g. Deal_Reg_Date__c",
+  deal_reg_id:   "Override default e.g. Deal_Reg_ID__c",
 };
 
 const WRITEBACK_FIELDS: Array<{

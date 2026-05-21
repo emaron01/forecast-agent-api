@@ -27,7 +27,6 @@ const HIGH_PROPS: Record<string, string> = {
   stage: "dealstage",
   owner: "hubspot_owner_id",
   forecast_stage: "hs_forecast_category",
-  product: "dealtype",
   partner_name: "partner_name",
   deal_reg: "deal_registration",
   deal_reg_date: "deal_registration_date",
@@ -88,7 +87,7 @@ export function buildHubSpotAutoMap(propertyNames: string[]): AutoMapResult[] {
       const m = findBestMatch(names, ["hs_forecast_category", "forecast_category", "forecast_stage"]);
       out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
     } else if (sf === "product") {
-      const m = findBestMatch(names, ["dealtype", "product_name", "product", "hs_product_name"]);
+      const m = findBestMatch(names, ["product_name", "product", "hs_product_name"]);
       out.push({ sf_field: sf, hubspot_property: m.prop, confidence: m.prop ? m.confidence : "none" });
     } else if (sf === "partner_name") {
       const m = findBestMatch(names, ["partner_name", "partner", "alliance_partner"]);
