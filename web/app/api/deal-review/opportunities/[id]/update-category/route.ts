@@ -1035,6 +1035,31 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     ].join("\n");
     const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 
+    const priorCategoryEntries: Array<[CategoryKey, string, string, string]> = [
+      ["pain", "pain", "pain_score", "pain_summary"],
+      ["metrics", "metrics", "metrics_score", "metrics_summary"],
+      ["champion", "champion", "champion_score", "champion_summary"],
+      ["economic_buyer", "economic_buyer", "eb_score", "eb_summary"],
+      ["criteria", "criteria", "criteria_score", "criteria_summary"],
+      ["process", "process", "process_score", "process_summary"],
+      ["competition", "competition", "competition_score", "competition_summary"],
+      ["paper", "paper", "paper_score", "paper_summary"],
+      ["timing", "timing", "timing_score", "timing_summary"],
+      ["budget", "budget", "budget_score", "budget_summary"],
+    ];
+    const priorCategoryContextLines = [
+      "",
+      "Prior category context (READ ONLY — use only to avoid asking for",
+      "information already established. Do NOT re-score, reference scores",
+      "directly in your response, or update any category other than the",
+      "one currently being reviewed):",
+      ...priorCategoryEntries
+        .filter(([key]) => key !== category)
+        .map(([, label, scoreKey, summaryKey]) =>
+          `- ${label}: score=${(opp as any)?.[scoreKey] ?? "(none)"}, summary=${String((opp as any)?.[summaryKey] || "").trim() || "(none)"}`
+        ),
+    ];
+
     const input = [
       `Opportunity: ${opportunityPublicId} (org ${orgId})`,
       `Category: ${displayCategory(category)}`,
@@ -1049,6 +1074,22 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- last_tip: ${lastTip || "(none)"}`,
       `- current_risk_summary: ${String(opp?.risk_summary || "").trim() || "(none)"}`,
       `- current_next_steps: ${String(opp?.next_steps || "").trim() || "(none)"}`,
+      "",
+      "Deal context:",
+      `- account_name: ${String(opp?.account_name || "").trim() || "(none)"}`,
+      `- opportunity_name: ${String(opp?.opportunity_name || "").trim() || "(none)"}`,
+      `- rep_name: ${String(opp?.rep_name || "").trim() || "(none)"}`,
+      `- amount: ${opp?.amount != null ? opp.amount : "(none)"}`,
+      `- close_date: ${String(opp?.close_date || "").trim() || "(none)"}`,
+      `- sales_stage: ${String(opp?.sales_stage || "").trim() || "(none)"}`,
+      `- forecast_stage: ${String(opp?.forecast_stage || "").trim() || "(none)"}`,
+      `- product: ${String(opp?.product || "").trim() || "(none)"}`,
+      `- partner_name: ${String(opp?.partner_name || "").trim() || "(none)"}`,
+      `- champion_name: ${String(opp?.champion_name || "").trim() || "(none)"}`,
+      `- champion_title: ${String(opp?.champion_title || "").trim() || "(none)"}`,
+      `- eb_name: ${String(opp?.eb_name || "").trim() || "(none)"}`,
+      `- eb_title: ${String(opp?.eb_title || "").trim() || "(none)"}`,
+      ...priorCategoryContextLines,
       category === "budget" || category === "economic_buyer"
         ? `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, is_also_eb=${!!dealContext?.is_also_eb}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`
         : "",
