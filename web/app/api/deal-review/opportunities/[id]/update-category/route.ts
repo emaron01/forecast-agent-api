@@ -1007,6 +1007,10 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "- Only set material_change=false when the rep explicitly indicates nothing has changed (e.g. 'no', 'same', 'unchanged').",
       "- New evidence includes negative or missing confirmation: e.g. 'we have not discussed pricing', 'no budget', 'not confirmed', 'don\'t know approval path'. In those cases set material_change=true and output score (low), evidence, and a helpful coaching tip.",
       "- For Budget: phrases like 'haven\'t discussed pricing', 'no budget', 'not confirmed' are explicit evidence; score low and provide a tip to confirm funding/approval.",
+      "- FOLLOW-UP LIMIT: You may ask AT MOST 2 follow-up questions total per session. Count the assistant turns in the conversation history. If there are already 2 or more assistant turns, you MUST finalize immediately with whatever information you have — do NOT ask another question under any circumstances.",
+      "- REP COMMANDS: If the rep says anything like 'score it', 'move on', 'just score', 'enough', 'done', 'stop asking', 'I am done', or expresses frustration with follow-up questions, you MUST immediately finalize with whatever information you have. Score conservatively on missing data and note the gap in the tip. Never ask another question after a rep command.",
+      "- ACCEPTANCE RULE: If the rep has answered a question (even briefly or vaguely), accept the answer and either finalize or ask ONE different follow-up to deepen a different aspect. Never re-ask the same question in different words.",
+      "- CONTRACT RULE: If the rep states there is an existing signed contract, MSA, or multi-year agreement in place, treat this as strong buyer validation — do NOT ask who signed it, when it was signed, or how the buyer interprets it. You may ask ONE clarifying question about scope (e.g. are you the sole vendor, or is this an add-on under an existing agreement) if that is genuinely unclear and relevant to the category being scored. After that one clarification, finalize regardless of the answer. Never ask follow-up questions about a contract beyond that single scope clarification.",
       "- If you need more information to score, ask ONE focused follow-up question.",
       "If probe_guidance is provided and the rep's answer is sufficient for the current score tier but has not yet provided evidence for the next tier, ask ONE probe question before finalizing. Adapt the phrasing naturally — do not recite verbatim. Skip the probe if the rep has already answered it or if asking would be redundant given context.",
       "MANDATORY: Before finalizing any category at score 0, 1, or 2, apply the follow-up intent for that category from your instructions. Use judgment — if the rep's answer already addresses the intent, do not re-ask. Phrasing is yours; stay within the intent boundary.",
@@ -1230,7 +1234,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
             if (score <= 2) {
               const assistantTurns = session.turns.filter((t) => t?.role === "assistant");
-              const hasPriorFollowUp = assistantTurns.length >= 2;
+              const hasPriorFollowUp = assistantTurns.length >= 1;
               if (!hasPriorFollowUp) {
                 let followUpQ = "";
                 try {
@@ -1461,7 +1465,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
 
     if (score <= 2) {
       const assistantTurns = session.turns.filter((t) => t?.role === "assistant");
-      const hasPriorFollowUp = assistantTurns.length >= 2;
+      const hasPriorFollowUp = assistantTurns.length >= 1;
       if (!hasPriorFollowUp) {
         let followUpQ = "";
         try {

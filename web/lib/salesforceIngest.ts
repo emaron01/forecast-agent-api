@@ -567,6 +567,9 @@ export async function runSalesforceIngest(params: {
 
     let nextUrl: string | null = null;
     let totalProcessed = 0;
+    let totalNewOppsScored = 0;
+    let totalOppsUpdated = 0;
+    let totalNewOppsNoNotes = 0;
 
     do {
       const pageJobTag = totalProcessed;
@@ -638,11 +641,9 @@ export async function runSalesforceIngest(params: {
         }
       }
 
-      const parts: string[] = [];
-      if (newOppsScored  > 0) parts.push(`${newOppsScored} new opportunity(s) scored from Salesforce notes`);
-      if (oppsUpdated    > 0) parts.push(`${oppsUpdated} opportunity(s) updated`);
-      if (newOppsNoNotes > 0) parts.push(`${newOppsNoNotes} opportunity(s) had no notes — Matthew will score these during rep reviews`);
-      if (parts.length   > 0) await appendSyncLogInfo(syncLogId, parts.join(" · "));
+      totalNewOppsScored += newOppsScored;
+      totalOppsUpdated += oppsUpdated;
+      totalNewOppsNoNotes += newOppsNoNotes;
 
       if (newRows.length) {
         await stageIngestionRows({ organizationId: orgId, mappingSetId, rawRows: newRows });
@@ -667,6 +668,7 @@ export async function runSalesforceIngest(params: {
       nextUrl = page.data.nextUrl;
     } while (nextUrl);
 
+    let deletedCount = 0;
     // Purge opportunities deleted in SFDC since last sync
     const lastSyncedRes = await pool.query<{ last_synced_at: Date | null }>(
       `SELECT last_synced_at FROM salesforce_connections WHERE org_id = $1`,
@@ -686,8 +688,16 @@ export async function runSalesforceIngest(params: {
          AND crm_opp_id_norm = ANY($2::text[])`,
           [orgId, normalizedIds]
         );
+        deletedCount = normalizedIds.length;
       }
     }
+
+    const parts: string[] = [];
+    if (totalNewOppsScored > 0) parts.push(`${totalNewOppsScored} new opportunity(s) scored from Salesforce notes`);
+    if (totalOppsUpdated > 0) parts.push(`${totalOppsUpdated} opportunity(s) updated`);
+    if (totalNewOppsNoNotes > 0) parts.push(`${totalNewOppsNoNotes} opportunity(s) had no notes — Matthew will score these during rep reviews`);
+    if (deletedCount > 0) parts.push(`${deletedCount} opportunity(s) removed (deleted in CRM)`);
+    if (parts.length > 0) await appendSyncLogInfo(syncLogId, parts.join(" · "));
 
     await pool.query(
       `UPDATE salesforce_connections SET last_synced_at = now(), updated_at = now() WHERE org_id = $1`,

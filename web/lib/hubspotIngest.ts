@@ -477,6 +477,9 @@ export async function runHubSpotIngest(params: {
 
     let cursor: string | undefined;
     let totalProcessed = 0;
+    let totalNewDealsScored = 0;
+    let totalDealsUpdated = 0;
+    let totalNewDealsNoNotes = 0;
     do {
       const pageJobTag = totalProcessed;
       const page = await getDealsWithCompanies(orgId, {
@@ -551,13 +554,9 @@ export async function runHubSpotIngest(params: {
         }
       }
 
-      const parts: string[] = [];
-      if (newDealsScored > 0) parts.push(`${newDealsScored} new deal(s) scored from CRM notes`);
-      if (dealsUpdated > 0) parts.push(`${dealsUpdated} deal(s) updated`);
-      if (newDealsNoNotes > 0) parts.push(`${newDealsNoNotes} deal(s) had no notes or comments — Matthew will score these during rep reviews`);
-      if (parts.length > 0) {
-        await appendSyncLogInfo(syncLogId, parts.join(" · "));
-      }
+      totalNewDealsScored += newDealsScored;
+      totalDealsUpdated += dealsUpdated;
+      totalNewDealsNoNotes += newDealsNoNotes;
 
       if (newRows.length) {
         await stageIngestionRows({
@@ -583,6 +582,7 @@ export async function runHubSpotIngest(params: {
       cursor = page.data.nextCursor || undefined;
     } while (cursor);
 
+    let deletedCount = 0;
     // Purge opportunities deleted in HubSpot since last sync
     const lastSyncedRes = await pool.query<{ last_synced_at: Date | null }>(
       `SELECT last_synced_at FROM hubspot_connections WHERE org_id = $1`,
@@ -602,8 +602,16 @@ export async function runHubSpotIngest(params: {
          AND crm_opp_id_norm = ANY($2::text[])`,
           [orgId, normalizedIds]
         );
+        deletedCount = normalizedIds.length;
       }
     }
+
+    const parts: string[] = [];
+    if (totalNewDealsScored > 0) parts.push(`${totalNewDealsScored} new deal(s) scored from CRM notes`);
+    if (totalDealsUpdated > 0) parts.push(`${totalDealsUpdated} deal(s) updated`);
+    if (totalNewDealsNoNotes > 0) parts.push(`${totalNewDealsNoNotes} deal(s) had no notes or comments — Matthew will score these during rep reviews`);
+    if (deletedCount > 0) parts.push(`${deletedCount} opportunity(s) removed (deleted in CRM)`);
+    if (parts.length > 0) await appendSyncLogInfo(syncLogId, parts.join(" · "));
 
     await pool.query(`UPDATE hubspot_connections SET last_synced_at = now(), updated_at = now() WHERE org_id = $1`, [orgId]);
     await updateSyncLog(syncLogId, { status: "completed", completed_at: new Date().toISOString() });
