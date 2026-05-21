@@ -643,6 +643,11 @@ export function HubspotIntegrationClient(props: {
                             </option>
                           ))}
                         </select>
+                        {sf === "product" ? (
+                          <p className="mt-1 text-[11px] text-[color:var(--sf-text-secondary)]">
+                            Select a deal property that identifies the product or product line. If none exists, create a custom deal property in HubSpot and select it here.
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${badge}`}>{r.confidence}</span>

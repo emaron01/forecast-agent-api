@@ -52,7 +52,7 @@ const SF_DEFAULTS: Record<string, string> = {
 
 // Placeholder hints for optional fields with no standard SFDC equivalent
 const SF_PLACEHOLDERS: Record<string, string> = {
-  product:       "Custom field e.g. Product__c",
+  product:       "Deal-level field e.g. Primary_Product__c (ask your SFDC admin to create a formula field on Opportunity referencing the primary product name)",
   partner_name:  "Custom field e.g. Partner_Name__c",
   deal_reg:      "Custom field e.g. Deal_Registration__c",
   deal_reg_date: "Custom field e.g. Deal_Reg_Date__c",
