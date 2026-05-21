@@ -591,7 +591,7 @@ export async function runHubSpotIngest(params: {
     const lastSyncedAt = lastSyncedRes.rows?.[0]?.last_synced_at;
     if (lastSyncedAt) {
       const archivedRes = await getArchivedDealIds(orgId, lastSyncedAt);
-      console.log(`[HS Delete] archivedSince=${lastSyncedAt.toISOString()} ok=${archivedRes.ok} count=${archivedRes.ok ? archivedRes.data.length : 'n/a'} error=${archivedRes.ok ? 'none' : archivedRes.error} ids=${archivedRes.ok ? JSON.stringify(archivedRes.data) : '[]'}`);
+      console.log(`[HS Delete] archivedSince=${lastSyncedAt.toISOString()} ok=${archivedRes.ok} count=${archivedRes.ok ? archivedRes.data.length : 'n/a'} error=${!archivedRes.ok ? (archivedRes as any).error : 'none'} ids=${archivedRes.ok ? JSON.stringify(archivedRes.data) : '[]'}`);
       if (archivedRes.ok === false) {
         await appendSyncLogWarning(syncLogId, `Archived deal fetch failed: ${archivedRes.error}`);
       } else if (archivedRes.data.length > 0) {

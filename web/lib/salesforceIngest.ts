@@ -677,7 +677,7 @@ export async function runSalesforceIngest(params: {
     const lastSyncedAt = lastSyncedRes.rows?.[0]?.last_synced_at;
     if (lastSyncedAt) {
       const deletedRes = await getDeletedOpportunityIds(orgId, lastSyncedAt);
-      console.log(`[SF Delete] deletedSince=${lastSyncedAt.toISOString()} ok=${deletedRes.ok} count=${deletedRes.ok ? deletedRes.data.length : 'n/a'} error=${deletedRes.ok ? 'none' : deletedRes.error} ids=${deletedRes.ok ? JSON.stringify(deletedRes.data) : '[]'}`);
+      console.log(`[SF Delete] deletedSince=${lastSyncedAt.toISOString()} ok=${deletedRes.ok} count=${deletedRes.ok ? deletedRes.data.length : 'n/a'} error=${!deletedRes.ok ? (deletedRes as any).error : 'none'} ids=${deletedRes.ok ? JSON.stringify(deletedRes.data) : '[]'}`);
       if (deletedRes.ok === false) {
         await appendSyncLogWarning(syncLogId, `Deleted opportunity fetch failed: ${deletedRes.error}`);
       } else if (deletedRes.data.length > 0) {
