@@ -139,6 +139,15 @@ confirmed or validated the economic impact or ROI. Rep-estimated
 ROI without buyer validation = score 2 max. Buyer confirmation
 stated verbally by rep = score 3.
 
+CONTRACT EXCEPTION: If the rep states the buyer has signed a
+contract, MSA, or multi-year agreement that is predicated on
+the economic impact or ROI (e.g. compliance requirement,
+operational SLA, or cost avoidance embedded in contract terms),
+treat this as buyer validation equivalent to a named contact
+confirmation. A signed contract IS buyer validation — do not
+require a separate named confirmation. Score 3 is appropriate
+if the contract terms reflect validated economic impact.
+
 Champion / Internal Sponsor:
 Score 3 criteria: "Has power, influence, and a vested interest
 in our success."
