@@ -1,3 +1,6 @@
+PRECEDENCE: This file governs ingest scoring constraints only.
+Scoring definitions are governed by scoring_discipline.txt, which
+takes precedence over this file in any conflict.
 INGEST PROCESSING RULES (SILENT INGESTION FLOW ONLY)
 
 This flow processes pasted notes, emails, or call transcripts
@@ -135,18 +138,25 @@ Champion — scoring rules (ingest only):
 - When ambiguous, score 1.
 
 Metrics — scoring rules (ingest only):
-- Score 0 if no specific metric, KPI, dollar amount, or ROI
-  figure is mentioned anywhere in the notes.
-- Score 1 if the rep mentions metrics exist or matter but
-  provides no specific figures or buyer validation.
-- Score 2 requires a specific metric or figure stated in the
-  notes with indirect buyer context (rep references what the
-  buyer tracks or has discussed).
-- Score 3 requires the buyer to have explicitly validated a
-  specific metric or ROI figure — named person + specific
-  number or outcome confirmed.
-- "They care about ROI" or "metrics are important" = score 0.
-  No number, no score above 0.
+
+Score 0 if no specific metric, KPI, dollar amount, ROI
+figure, or contract reference is mentioned anywhere in the notes.
+Score 1 if the rep mentions metrics exist or matter but
+provides no specific figures, buyer validation, or contract.
+Score 1 requires at minimum a description of what the buyer
+tracks or measures. Pure vague-value acknowledgment ("they
+care about ROI", "metrics are important") = score 0, not 1.
+Score 2 requires a specific metric or figure stated in the
+notes with indirect buyer context (rep references what the
+buyer tracks or has discussed).
+Score 3 requires EITHER: (a) the buyer to have explicitly
+validated a specific metric or ROI figure — named person +
+specific number or outcome confirmed, OR (b) notes state a
+signed contract, MSA, or multi-year agreement is in place
+that is predicated on economic impact, compliance requirement,
+cost avoidance, or operational SLA — a signed contract IS
+buyer validation and does not require a separate named-person
+confirmation.
 
 Decision Process — scoring rules (ingest only):
 - Score 0 if no process, steps, or stakeholders are mentioned.

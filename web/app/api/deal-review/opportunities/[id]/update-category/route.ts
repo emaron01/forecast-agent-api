@@ -294,7 +294,7 @@ function firstQuestionForCategory(category: CategoryKey, baseQuestion?: string) 
     case "paper":
       return "What is the paper process (legal/procurement/security), who owns each step, and what are the target dates to signature?";
     case "competition":
-      return "What is the competitive alternative, and what’s the buyer-verified reason you win?";
+      return "What's the competitive landscape — is anyone else in the mix, and what's the buyer-verified reason they're going with you?";
     case "timing":
       return "What buyer-owned event drives timing, and what are the critical path milestones between now and close?";
     case "budget":
@@ -1035,7 +1035,6 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "When finalizing for Internal Sponsor or Economic Buyer, if the rep stated a name or title, include only that role's fields: for Economic Buyer use eb_name, eb_title; for Internal Sponsor use champion_name, champion_title. champion_name must be a person's full name only (e.g. 'Vince Campbell'), never a title or role description. Do not cross-populate the other role.",
       "If the rep gives a new name and/or title for EB or Champion, accept it (they can change it back if wrong). Omit entity_override when unclear.",
       `- {"action":"finalize","material_change":false} `,
-      "MANDATORY: Before finalizing any category at score 0, 1, or 2, apply the follow-up intent for that category from your instructions. Use judgment — if the rep's answer already addresses the intent, do not re-ask. Phrasing is yours; stay within the intent boundary.",
     ].join("\n");
     const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 
