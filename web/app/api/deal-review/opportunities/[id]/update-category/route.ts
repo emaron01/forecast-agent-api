@@ -1039,17 +1039,17 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
     ].join("\n");
     const instructions = `${masterPromptResolved}\n\n---\n\n${categoryInstructions}`;
 
-    const priorCategoryEntries: Array<[CategoryKey, string, string, string]> = [
-      ["pain", "pain", "pain_score", "pain_summary"],
-      ["metrics", "metrics", "metrics_score", "metrics_summary"],
-      ["champion", "champion", "champion_score", "champion_summary"],
-      ["economic_buyer", "economic_buyer", "eb_score", "eb_summary"],
-      ["criteria", "criteria", "criteria_score", "criteria_summary"],
-      ["process", "process", "process_score", "process_summary"],
-      ["competition", "competition", "competition_score", "competition_summary"],
-      ["paper", "paper", "paper_score", "paper_summary"],
-      ["timing", "timing", "timing_score", "timing_summary"],
-      ["budget", "budget", "budget_score", "budget_summary"],
+    const priorCategoryEntries: Array<[CategoryKey, string, string, string, string]> = [
+      ["pain", "pain", "pain_score", "pain_summary", "pain_evidence_strength"],
+      ["metrics", "metrics", "metrics_score", "metrics_summary", "metrics_evidence_strength"],
+      ["champion", "champion", "champion_score", "champion_summary", "champion_evidence_strength"],
+      ["economic_buyer", "economic_buyer", "eb_score", "eb_summary", "eb_evidence_strength"],
+      ["criteria", "criteria", "criteria_score", "criteria_summary", "criteria_evidence_strength"],
+      ["process", "process", "process_score", "process_summary", "process_evidence_strength"],
+      ["competition", "competition", "competition_score", "competition_summary", "competition_evidence_strength"],
+      ["paper", "paper", "paper_score", "paper_summary", "paper_evidence_strength"],
+      ["timing", "timing", "timing_score", "timing_summary", "timing_evidence_strength"],
+      ["budget", "budget", "budget_score", "budget_summary", "budget_evidence_strength"],
     ];
     const priorCategoryContextLines = [
       "",
@@ -1059,8 +1059,8 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "one currently being reviewed):",
       ...priorCategoryEntries
         .filter(([key]) => key !== category)
-        .map(([, label, scoreKey, summaryKey]) =>
-          `- ${label}: score=${(opp as any)?.[scoreKey] ?? "(none)"}, summary=${String((opp as any)?.[summaryKey] || "").trim() || "(none)"}`
+        .map(([, label, scoreKey, summaryKey, evidenceKey]) =>
+          `- ${label}: score=${(opp as any)?.[scoreKey] ?? "(none)"}, summary=${String((opp as any)?.[summaryKey] || "").trim() || "(none)"}, evidence=${String((opp as any)?.[evidenceKey] || "").trim() || "(none)"}`
         ),
     ];
 
