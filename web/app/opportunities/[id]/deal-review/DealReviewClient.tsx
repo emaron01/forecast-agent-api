@@ -1054,7 +1054,7 @@ export function DealReviewClient(props: {
             ...(championCtx.champion_title ? { champion_title: championCtx.champion_title } : {}),
           };
         }
-        if ((nextCat === "budget" || nextCat === "economic_buyer") && dealContextRef.current) {
+        if (dealContextRef.current && Object.keys(dealContextRef.current).length > 0) {
           postBody.deal_context = dealContextRef.current;
         }
         console.log("cross_category_debug", {

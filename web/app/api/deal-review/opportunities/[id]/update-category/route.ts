@@ -1026,6 +1026,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       "    These pricing_discussed, po_submitted, and is_also_eb fields must reflect only what the rep explicitly stated in this Internal Sponsor turn about pricing, quotes, POs, or whether the Internal Sponsor is also the economic buyer. Default each to false if not clearly mentioned. Do not infer or guess.",
       "    is_also_eb must only be true if the rep explicitly stated the champion is also the economic buyer in this turn. Do not infer from seniority or title alone.",
       `  When category is "economic_buyer", add: ,"eb_name":"First Last","eb_title":"Title"`,
+      `  IMPORTANT: eb_name and eb_title are OUTPUT fields for any new name/title the rep states in THIS turn. If the rep did not state a new name or title in this turn, populate eb_name and eb_title from the existing values in Deal context (eb_name, eb_title fields) — do NOT ask the rep to re-state information already in context. Only update these fields if the rep explicitly provides a different name or title.`,
       `  When category is "competition", add: ,"sole_vendor":true/false,"contract_in_place":true/false`,
       "    These sole_vendor and contract_in_place fields must reflect only what the rep explicitly stated in this Competition turn. Default each to false if not clearly mentioned. Do not infer or guess.",
       `  When category is "criteria", add: ,"existing_customer":true/false`,
@@ -1093,9 +1094,7 @@ export async function POST(req: Request, { params }: { params: { id: string } | 
       `- eb_name: ${String(opp?.eb_name || "").trim() || "(none)"}`,
       `- eb_title: ${String(opp?.eb_title || "").trim() || "(none)"}`,
       ...priorCategoryContextLines,
-      category === "budget" || category === "economic_buyer"
-        ? `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, is_also_eb=${!!dealContext?.is_also_eb}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`
-        : "",
+      `- prior_deal_context_signals: pricing_discussed=${!!dealContext?.pricing_discussed}, po_submitted=${!!dealContext?.po_submitted}, is_also_eb=${!!dealContext?.is_also_eb}, sole_vendor=${!!dealContext?.sole_vendor}, contract_in_place=${!!dealContext?.contract_in_place}, existing_customer=${!!dealContext?.existing_customer}, po_process_described=${!!dealContext?.po_process_described}`,
       clarifierQuestions.length > 0
         ? `- probe_guidance: If the rep's answer qualifies for the current score but key evidence for a higher score is still missing, probe once using one of these questions before finalizing (adapt naturally to what was already said, do not ask verbatim if context makes it redundant): ${clarifierQuestions.join(" | ")}`
         : "",
