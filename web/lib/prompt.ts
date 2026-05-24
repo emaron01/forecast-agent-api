@@ -26,7 +26,7 @@ export function buildDealContextBlock(deal: Deal): string {
 
 /** Reusable scoring criteria block (header + formatScoreDefinitions). */
 export function buildScoringCriteriaBlock(scoreDefs: ScoreDef[]): string {
-  return ["", "SCORING CRITERIA (AUTHORITATIVE)", formatScoreDefinitions(scoreDefs || [])].join("\n");
+  return ["", "SCORING CRITERIA (REFERENCE ONLY — use these as human-readable score labels and boundary hints. Do not treat examples as exhaustive requirements. Final scoring judgment must follow scoring_discipline.txt. If these criteria conflict with scoring_discipline.txt, scoring_discipline.txt wins.)", formatScoreDefinitions(scoreDefs || [])].join("\n");
 }
 
 function formatScoreDefinitions(defs: ScoreDef[]) {
