@@ -152,7 +152,7 @@ function formatDate(s: string | null) {
   }
 }
 
-type SortKey = "account" | "opportunity" | "rep" | "health" | "stage" | "lastReview";
+type SortKey = "account" | "opportunity" | "rep" | "amount" | "health" | "stage" | "lastReview";
 type SortDir = "asc" | "desc";
 
 export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
@@ -255,6 +255,15 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
         case "rep":
           cmp = (a.rep_name ?? "").localeCompare(b.rep_name ?? "");
           break;
+        case "amount": {
+          const aa = resolveAmount(a);
+          const ab = resolveAmount(b);
+          if (aa == null && ab == null) return 0;
+          if (aa == null) return 1;
+          if (ab == null) return -1;
+          cmp = aa - ab;
+          return cmp * dir;
+        }
         case "health": {
           const ha = healthPct(a.health_score) ?? -1;
           const hb = healthPct(b.health_score) ?? -1;
@@ -282,7 +291,7 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortKey(key);
-      setSortDir("asc");
+      setSortDir(key === "amount" ? "desc" : "asc");
     }
   }
 
@@ -334,7 +343,12 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               >
                 Rep <SortIcon column="rep" />
               </th>
-              <th className="px-3 py-2 text-right text-xs font-semibold whitespace-nowrap">Amt</th>
+              <th
+                className="cursor-pointer select-none px-3 py-2 text-right text-xs font-semibold hover:bg-[color:var(--sf-border)] whitespace-nowrap"
+                onClick={() => toggleSort("amount")}
+              >
+                Amt <SortIcon column="amount" />
+              </th>
               <th
                 className="cursor-pointer select-none px-3 py-2 text-right text-xs font-semibold hover:bg-[color:var(--sf-border)] whitespace-nowrap"
                 onClick={() => toggleSort("health")}
