@@ -3,19 +3,8 @@ import "../globals.css";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
 import { getOrganization } from "../../lib/db";
 import { isAdmin, isSalesLeader } from "../../lib/roleHelpers";
-import { AdminHelpSearch } from "../_components/HelpSearchDropdown";
 import { UserProfileBadge } from "../_components/UserProfileBadge";
-
-function NavLink({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="rounded-md px-2 py-1.5 text-[13px] font-medium text-[color:var(--sf-nav-text)] hover:bg-[color:var(--sf-surface-alt)] hover:text-[color:var(--sf-nav-hover)]"
-    >
-      {label}
-    </Link>
-  );
-}
+import { AdminNav } from "./AdminNav";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireManagerAdminOrMaster();
@@ -26,6 +15,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const displayName = ctx.kind === "user" ? ctx.user.display_name : ctx.email;
   const email = ctx.kind === "user" ? ctx.user.email : ctx.email;
   const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
+  const isMaster = ctx.kind === "master";
+  const isSalesLeaderUser = ctx.kind === "user" && isSalesLeader(ctx.user);
+  const isAdminUser = ctx.kind === "user" && isAdmin(ctx.user);
 
   return (
     <div className="min-h-screen bg-[color:var(--sf-background)]">
@@ -35,53 +27,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <Link href="/admin" className="text-sm font-semibold tracking-tight text-[color:var(--sf-text-primary)]">
               Admin Dashboard
             </Link>
-            <nav className="hidden items-center gap-1 md:flex">
-              {ctx.kind === "master" ? (
-                <>
-                  <NavLink href="/admin/control-center" label="Control Center" />
-                  <NavLink href="/admin/organizations" label="Organizations" />
-                  <NavLink href="/admin/integrations" label="Integrations" />
-                  <NavLink href="/admin/all-users" label="All Users" />
-                  <NavLink href="/admin/email-templates" label="Email Templates" />
-                  <NavLink href="/admin/ingestion" label="Ingestion" />
-                  <NavLink href="/admin/ingestion-health" label="Ingestion Health" />
-                  <NavLink href="/admin/health" label="Health" />
-                </>
-              ) : null}
-              <NavLink href="/admin/users" label="Users" />
-              <NavLink href="/admin/integrations/hubspot" label="HubSpot" />
-              <NavLink href="/admin/integrations/salesforce" label="Salesforce" />
-              <NavLink href="/admin/excel-opportunities" label="Excel Upload" />
-              <NavLink href="/admin/ingest-comments" label="Ingest Comments" />
-              {ctx.kind === "user" && isSalesLeader(ctx.user) ? (
-                <>
-                  <NavLink href="/admin/hierarchy" label="Sales Organization" />
-                </>
-              ) : (
-                <>
-                  <NavLink href="/admin/org-profile" label="Org Profile" />
-                  {ctx.kind === "user" && isAdmin(ctx.user) ? (
-                    <>
-                      <NavLink href="/admin/stage-mapping" label="Stage Mapping" />
-                      <NavLink href="/admin/ingestion-health" label="Ingestion Health" />
-                    </>
-                  ) : null}
-                  <NavLink href="/admin/hierarchy" label="Sales Organization" />
-                  <NavLink href="/admin/channel-alignment" label="Channel Alignment" />
-                  <NavLink href="/admin/partner-assignments" label="Partner Assignments" />
-                  {ctx.kind === "master" ? <NavLink href="/admin/mapping-sets" label="Mapping Sets" /> : null}
-                  {hasQuotaSetupAccess ? (
-                    <>
-                      <NavLink href="/admin/analytics" label="Analytics" />
-                      <NavLink href="/admin/analytics/quota-periods" label="Quota Periods" />
-                      <NavLink href="/admin/analytics/quotas" label="Quotas" />
-                      <NavLink href="/dashboard/executive?tab=forecast" label="Forecast Hygiene" />
-                    </>
-                  ) : null}
-                </>
-              )}
-              <AdminHelpSearch />
-            </nav>
+            <AdminNav
+              isMaster={isMaster}
+              isSalesLeader={isSalesLeaderUser}
+              isAdminUser={isAdminUser}
+              hasQuotaSetupAccess={hasQuotaSetupAccess}
+            />
           </div>
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="text-sm text-[color:var(--sf-text-secondary)] hover:text-[color:var(--sf-text-primary)]">

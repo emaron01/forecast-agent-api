@@ -3,78 +3,192 @@ import { redirect } from "next/navigation";
 import { requireManagerAdminOrMaster } from "../../lib/auth";
 import { isAdmin, isManager } from "../../lib/roleHelpers";
 
-function Card({ href, title, desc }: { href: string; title: string; desc: string }) {
+export const runtime = "nodejs";
+
+function SetupCard({
+  href,
+  title,
+  desc,
+  icon,
+}: {
+  href: string;
+  title: string;
+  desc: string;
+  icon: string;
+}) {
   return (
     <Link
       href={href}
-      className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
+      className="flex gap-4 rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm hover:border-[color:var(--sf-accent-secondary)]"
     >
-      <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
-      <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-base"
+        aria-hidden
+      >
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</div>
+        <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">{desc}</div>
+      </div>
     </Link>
+  );
+}
+
+function DataSourceChip({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-md border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] px-3 py-2 text-sm font-medium text-[color:var(--sf-text-primary)] hover:border-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface)]"
+    >
+      {label}
+    </Link>
+  );
+}
+
+function SetupStep({
+  step,
+  title,
+  children,
+}: {
+  step: number;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section>
+      <div className="flex items-center gap-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--sf-accent-primary)] text-xs font-bold text-[color:var(--sf-button-primary-text)]">
+          {step}
+        </span>
+        <h2 className="text-base font-semibold text-[color:var(--sf-text-primary)]">{title}</h2>
+      </div>
+      <hr className="mt-3 border-[color:var(--sf-border)]" />
+      <div className="mt-4">{children}</div>
+    </section>
   );
 }
 
 export default async function AdminHome() {
   const ctx = await requireManagerAdminOrMaster();
   if (ctx.kind === "user" && isManager(ctx.user)) redirect("/admin/users");
-
-  const hasQuotaSetupAccess = ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user));
-  const hasExecutiveDashboardAccess =
-    ctx.kind === "master" || (ctx.kind === "user" && isAdmin(ctx.user) && !!ctx.user.admin_has_full_analytics_access);
+  if (ctx.kind === "master") redirect("/admin/legacy");
+  if (ctx.kind !== "user" || !isAdmin(ctx.user)) redirect("/admin/users");
 
   return (
-    <main className="grid gap-4 md:grid-cols-3">
-      {ctx.kind === "master" ? (
-        <>
-          <Card href="/admin/control-center" title="Owner Control Center" desc="Site map + QA panel (master only)." />
-          <Card href="/admin/organizations" title="Organizations" desc="Create and manage organizations. Set your active org." />
-          <Card href="/admin/all-users" title="All Users" desc="View users across all organizations." />
-          <Card href="/admin/email-templates" title="Email Templates" desc="Manage welcome/invite/reset templates." />
-          <Card href="/admin/ingestion" title="Ingestion" desc="Tech support: monitor staging rows and trigger processing (owner only)." />
-        </>
-      ) : null}
-      <Card href="/admin/users" title="Users" desc="Create, edit, deactivate, and manage roles and reporting lines." />
-      <Card href="/admin/excel-opportunities" title="Excel Upload" desc="Upload an Excel of opportunities and map fields." />
-      <Card href="/admin/org-profile" title="Org Profile" desc="Manage organization profile fields." />
-      <Card href="/admin/hierarchy" title="Sales Organization" desc="set-up, edit and review Sales Org Assignmnets." />
-      <Card
-        href="/admin/channel-alignment"
-        title="Channel Alignment"
-        desc="Align channel team members to sales territories."
-      />
-      <Card
-        href="/admin/partner-assignments"
-        title="Partner Assignments"
-        desc="Assign partners to channel reps for deal attribution."
-      />
-      {ctx.kind === "master" ? (
-        <Card href="/admin/mapping-sets" title="Mapping Sets" desc="Owner-only: manage mapping sets and their field mappings." />
-      ) : null}
-      {hasQuotaSetupAccess ? (
-        <>
-          <Card href="/admin/analytics/quota-periods" title="Quota periods" desc="Manage fiscal calendar (quota periods)." />
-          <Card href="/admin/analytics/quotas" title="Quotas" desc="Assign quotas to reps and manage quota sets." />
-          <Card
+    <main className="grid gap-8">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-[color:var(--sf-text-primary)]">Organization setup</h1>
+          <p className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+            Configure your organization in order — foundation, data, pipeline, quotas, and channel.
+          </p>
+        </div>
+        <Link
+          href="/admin/legacy"
+          className="rounded-md border border-[color:var(--sf-border)] px-3 py-2 text-sm text-[color:var(--sf-text-secondary)] hover:border-[color:var(--sf-accent-secondary)] hover:bg-[color:var(--sf-surface-alt)] hover:text-[color:var(--sf-text-primary)]"
+        >
+          Legacy admin dashboard
+        </Link>
+      </div>
+
+      <SetupStep step={1} title="Organization foundation">
+        <div className="grid gap-4 md:grid-cols-3">
+          <SetupCard
+            href="/admin/org-profile"
+            title="Org Profile"
+            desc="Manage organization profile fields."
+            icon="🏢"
+          />
+          <SetupCard
+            href="/admin/users"
+            title="Users"
+            desc="Create, edit, deactivate, and manage roles and reporting lines."
+            icon="👥"
+          />
+          <SetupCard
+            href="/admin/hierarchy"
+            title="Sales Organization"
+            desc="Set up, edit and review Sales Org assignments."
+            icon="🧭"
+          />
+        </div>
+      </SetupStep>
+
+      <SetupStep step={2} title="Data source">
+        <div className="rounded-xl border border-[color:var(--sf-border)] bg-[color:var(--sf-surface)] p-5 shadow-sm">
+          <div className="flex gap-4">
+            <div
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[color:var(--sf-border)] bg-[color:var(--sf-surface-alt)] text-base"
+              aria-hidden
+            >
+              📥
+            </div>
+            <div className="min-w-0">
+              <div className="text-base font-semibold text-[color:var(--sf-text-primary)]">Connect your CRM or upload data</div>
+              <div className="mt-1 text-sm text-[color:var(--sf-text-secondary)]">
+                Choose how opportunities enter SalesForecast.io — spreadsheet upload or a live CRM integration.
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <DataSourceChip href="/admin/excel-opportunities" label="Excel upload" />
+            <DataSourceChip href="/admin/integrations/salesforce" label="Salesforce" />
+            <DataSourceChip href="/admin/integrations/hubspot" label="HubSpot" />
+          </div>
+        </div>
+      </SetupStep>
+
+      <SetupStep step={3} title="Pipeline & stage configuration">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SetupCard
+            href="/admin/stage-mapping"
+            title="Stage mapping"
+            desc="Map CRM forecast category and sales stage values to forecast buckets."
+            icon="🗺️"
+          />
+          <SetupCard
             href="/admin/analytics/forecast-probabilities"
             title="Forecast probabilities"
             desc="Set close probabilities by forecast category (Commit/Best/Pipeline)."
+            icon="📊"
           />
-          {hasExecutiveDashboardAccess ? (
-            <>
-              <Card href="/dashboard/executive" title="Executive Dashboard" desc="Company + manager + rep KPI views." />
-              <Card
-                href="/dashboard/executive?tab=channel"
-                title="Top Partners"
-                desc="Partner performance, CEI scoring, and channel investment guidance (Channel tab on Executive Dashboard)."
-              />
-              <Card href="/analytics/quotas/executive" title="Executive Quotas" desc="Quota rollups and attainment (executive view)." />
-              <Card href="/analytics/custom-reports" title="Custom Reports" desc="Build and save custom rep comparison reports." />
-            </>
-          ) : null}
-        </>
-      ) : null}
+        </div>
+      </SetupStep>
+
+      <SetupStep step={4} title="Quota & targets">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SetupCard
+            href="/admin/analytics/quota-periods"
+            title="Quota periods"
+            desc="Manage fiscal calendar (quota periods)."
+            icon="📅"
+          />
+          <SetupCard
+            href="/admin/analytics/quotas"
+            title="Quotas"
+            desc="Assign quotas to reps and manage quota sets."
+            icon="🎯"
+          />
+        </div>
+      </SetupStep>
+
+      <SetupStep step={5} title="Channel & partner setup">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SetupCard
+            href="/admin/channel-alignment"
+            title="Channel alignment"
+            desc="Align channel team members to sales territories."
+            icon="🔗"
+          />
+          <SetupCard
+            href="/admin/partner-assignments"
+            title="Partner assignments"
+            desc="Assign partners to channel reps for deal attribution."
+            icon="🤝"
+          />
+        </div>
+      </SetupStep>
     </main>
   );
 }
-
