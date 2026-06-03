@@ -27,9 +27,23 @@ export type ManagerReviewQueueProps = {
 
 type ReviewQueueDeal = ManagerReviewQueueProps["deals"][number];
 
-function fmtMoney(n: number | null) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+function resolveAmount(deal: ReviewQueueDeal): number | null {
+  const raw =
+    deal.amount ??
+    (deal as { amt?: unknown }).amt ??
+    (deal as { opportunity_amount?: unknown }).opportunity_amount ??
+    (deal as { deal_amount?: unknown }).deal_amount ??
+    (deal as { value?: unknown }).value;
+  if (raw == null || raw === "") return null;
+  const v = Number(raw);
+  return Number.isFinite(v) ? v : null;
+}
+
+function fmtMoney(n: unknown) {
+  if (n == null || n === "") return "—";
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 }
 
 function healthPct(score: number | null) {
@@ -320,13 +334,13 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
               >
                 Rep <SortIcon column="rep" />
               </th>
+              <th className="px-3 py-2 text-right text-xs font-semibold whitespace-nowrap">Amt</th>
               <th
-                className="cursor-pointer select-none px-3 py-2 text-right text-xs font-semibold hover:bg-[color:var(--sf-border)]"
+                className="cursor-pointer select-none px-3 py-2 text-right text-xs font-semibold hover:bg-[color:var(--sf-border)] whitespace-nowrap"
                 onClick={() => toggleSort("health")}
               >
                 Health % <SortIcon column="health" />
               </th>
-              <th className="px-3 py-2 text-right text-xs font-semibold">Amt</th>
               <th
                 className="cursor-pointer select-none px-3 py-2 text-left text-xs font-semibold hover:bg-[color:var(--sf-border)]"
                 onClick={() => toggleSort("stage")}
@@ -366,23 +380,25 @@ export function ManagerReviewQueueClient(props: ManagerReviewQueueProps) {
                         >
                           {risk.label}
                         </span>
-                        <span className="truncate">{d.account_name ?? "—"}</span>
+                        <span className="min-w-0 break-words leading-snug">{d.account_name ?? "—"}</span>
                       </div>
                     </td>
                     <td
-                      className="cursor-pointer px-3 py-2 hover:text-[color:var(--sf-accent-primary)]"
+                      className="cursor-pointer px-3 py-2 hover:text-[color:var(--sf-accent-primary)] max-w-[14rem]"
                       onClick={() => toggleDealExpand(d.id)}
                     >
-                      <span className="flex items-center gap-1">
-                        {d.opp_name ?? "—"}
-                        <span className="text-xs">{expandedDealId === d.id ? "▲" : "▼"}</span>
+                      <span className="flex items-start gap-1 break-words leading-snug">
+                        <span className="min-w-0">{d.opp_name ?? "—"}</span>
+                        <span className="shrink-0 text-xs">{expandedDealId === d.id ? "▲" : "▼"}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-2">{d.rep_name ?? "—"}</td>
-                    <td className={`px-3 py-2 text-right font-mono ${healthColorClass(pct)}`}>
+                    <td className="px-3 py-2 whitespace-nowrap">{d.rep_name ?? "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap tabular-nums">
+                      {fmtMoney(resolveAmount(d))}
+                    </td>
+                    <td className={`px-3 py-2 text-right font-mono whitespace-nowrap tabular-nums ${healthColorClass(pct)}`}>
                       {pct != null ? `${pct}%` : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtMoney(d.amount)}</td>
                     <td className="px-3 py-2">{d.forecast_stage ?? "—"}</td>
                     <td className="px-3 py-2">{formatDate(d.last_reviewed_at)}</td>
                     <td className="px-3 py-2">
