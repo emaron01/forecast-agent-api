@@ -88,6 +88,15 @@ function safeDate(d: any) {
   return s || "—";
 }
 
+function fmtRevenue(opp: any) {
+  const raw =
+    opp?.amount ?? opp?.revenue ?? opp?.deal_amount ?? opp?.opportunity_amount;
+  if (raw == null || raw === "") return "—";
+  const v = Number(raw);
+  if (!Number.isFinite(v)) return "—";
+  return v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+}
+
 function scoreColor(score: number) {
   const s = Number(score || 0) || 0;
   return s >= 3 ? "var(--good)" : s >= 2 ? "var(--accent)" : "var(--bad)";
@@ -2322,7 +2331,8 @@ export function DealReviewClient(props: {
                     </div>
                   ) : null}
               <div className="kv">
-                <b>Rep:</b> {repName || "—"} · <b>Forecast:</b> {forecastStage || "—"} · <b>Close:</b>{" "}
+                <b>Rep:</b> {repName || "—"} · <b>Forecast:</b> {forecastStage || "—"} · <b>Revenue:</b>{" "}
+                {fmtRevenue(opportunity)} · <b>Close:</b>{" "}
                 {closeDateStr || "—"} · <b>Updated:</b> {safeDate(opportunity?.updated_at)} · <b>Partner:</b>{" "}
                 {partnerName || "—"} · <b>Deal Reg:</b>{" "}
                 <span className="font-mono text-xs">{dealRegDisplay}</span>
