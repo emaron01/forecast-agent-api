@@ -1308,6 +1308,14 @@ export default async function ExecutiveDashboardPage({
           MAX(oae.ts)::text AS last_reviewed_at
         FROM opportunities o
         JOIN reps r ON r.id = o.rep_id
+        LEFT JOIN org_stage_mappings stm
+          ON stm.org_id = o.org_id
+         AND stm.field = 'stage'
+         AND lower(btrim(stm.stage_value)) = lower(btrim(COALESCE(o.sales_stage::text, '')))
+        LEFT JOIN org_stage_mappings fcm
+          ON fcm.org_id = o.org_id
+         AND fcm.field = 'forecast_category'
+         AND lower(btrim(fcm.stage_value)) = lower(btrim(COALESCE(o.forecast_stage::text, '')))
         LEFT JOIN users u ON u.id = o.review_requested_by
         LEFT JOIN opportunity_audit_events oae
           ON oae.opportunity_id = o.id
@@ -1338,10 +1346,9 @@ export default async function ExecutiveDashboardPage({
           AND o.rep_id = ANY($2::bigint[])
           AND o.close_date >= $3::date
           AND o.close_date < $4::date
-          AND (
-            o.sales_stage IS NULL
-            OR (o.sales_stage NOT IN ('Closed Won', 'Closed Lost', 'Closed Loss'))
-          )
+          AND (${crmBucketCaseSql("o")}) IN ('commit', 'best_case', 'pipeline')
+          AND NOT (COALESCE(o.forecast_stage ~* '\\y(won|lost|closed)\\y', false))
+          AND NOT (COALESCE(o.sales_stage ~* '\\y(won|lost|closed)\\y', false))
         GROUP BY 
           o.id, r.id, u.id,
           score_before.total_score,
